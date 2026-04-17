@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="extension/icon.png" alt="Claws" width="100" height="100">
+  <img src="https://raw.githubusercontent.com/neunaha/claws/main/extension/icon.png" alt="Claws" width="100" height="100">
 </p>
 
 <h1 align="center">Claws</h1>
@@ -136,19 +136,19 @@ Newline-delimited JSON over Unix socket. [Full spec →](docs/protocol.md)
 ## How It Works
 
 <p align="center">
-  <img src="docs/images/architecture.png" alt="Claws Architecture" width="720">
+  <img src="https://raw.githubusercontent.com/neunaha/claws/main/docs/images/architecture.png" alt="Claws Architecture" width="720">
 </p>
 
 Claws runs a socket server inside VS Code. Clients connect and control terminals via JSON commands. Wrapped terminals capture full pty output via `script(1)` — readable even for TUI sessions.
 
 <p align="center">
-  <img src="docs/images/wrapped-terminal.png" alt="Wrapped Terminal Data Flow" width="720">
+  <img src="https://raw.githubusercontent.com/neunaha/claws/main/docs/images/wrapped-terminal.png" alt="Wrapped Terminal Data Flow" width="720">
 </p>
 
 ### Cross-Device Control (planned)
 
 <p align="center">
-  <img src="docs/images/cross-device.png" alt="Cross-Device Architecture" width="720">
+  <img src="https://raw.githubusercontent.com/neunaha/claws/main/docs/images/cross-device.png" alt="Cross-Device Architecture" width="720">
 </p>
 
 WebSocket transport with token auth + TLS for controlling terminals across machines. SSH tunnel pattern works today as an interim solution.
