@@ -35,11 +35,11 @@ Claws is a VS Code extension that exposes your integrated terminals over a local
 
 ```bash
 # 1. Clone
-git clone https://github.com/anishneunaha/claws.git
+git clone https://github.com/neunaha/claws.git
 cd claws
 
 # 2. Symlink into VS Code
-ln -s "$(pwd)/extension" ~/.vscode/extensions/anishneunaha.claws-0.1.0
+ln -s "$(pwd)/extension" ~/.vscode/extensions/neunaha.claws-0.1.0
 
 # 3. Make the wrapper executable
 chmod +x scripts/terminal-wrapper.sh

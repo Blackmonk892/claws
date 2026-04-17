@@ -23,6 +23,6 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/anishneunaha/claws"
-Repository = "https://github.com/anishneunaha/claws"
-Issues = "https://github.com/anishneunaha/claws/issues"
+Homepage = "https://github.com/neunaha/claws"
+Repository = "https://github.com/neunaha/claws"
+Issues = "https://github.com/neunaha/claws/issues"

@@ -3,16 +3,16 @@
   "displayName": "Claws — Terminal Control Bridge",
   "description": "Turn every VS Code terminal into a programmable endpoint. List, create, send, execute, read, and close terminals from any external process via a local socket.",
   "version": "0.1.0",
-  "publisher": "anishneunaha",
+  "publisher": "neunaha",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/anishneunaha/claws"
+    "url": "https://github.com/neunaha/claws"
   },
   "bugs": {
-    "url": "https://github.com/anishneunaha/claws/issues"
+    "url": "https://github.com/neunaha/claws/issues"
   },
-  "homepage": "https://github.com/anishneunaha/claws#readme",
+  "homepage": "https://github.com/neunaha/claws#readme",
   "icon": "icon.png",
   "engines": {
     "vscode": "^1.93.0"
