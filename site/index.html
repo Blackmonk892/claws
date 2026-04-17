@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claws — Terminal Control Bridge for VS Code</title>
+  <meta name="description" content="Control any VS Code terminal from the outside. List, create, send, execute, read, and close terminals via a JSON socket. Built for AI pair programming.">
+  <meta property="og:title" content="Claws — Terminal Control Bridge for VS Code">
+  <meta property="og:description" content="Control any VS Code terminal from the outside via a JSON socket. Built for AI pair programming with Claude Code.">
+  <meta property="og:image" content="https://raw.githubusercontent.com/neunaha/claws/main/docs/images/social-preview.png">
+  <meta property="og:url" content="https://neunaha.github.io/claws">
+  <meta name="twitter:card" content="summary_large_image">
+  <style>
+    :root {
+      --bg: #0A0A0B;
+      --bg-2: #111113;
+      --bg-3: #1a1a1d;
+      --text: #F5EFE6;
+      --text-muted: #8A847B;
+      --accent: #C85A3E;
+      --accent-dim: rgba(200, 90, 62, 0.15);
+      --code-bg: #161618;
+      --border: #2a2a2d;
+      --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 16px;
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* Nav */
+    nav {
+      position: fixed; top: 0; width: 100%; z-index: 100;
+      background: rgba(10, 10, 11, 0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 0;
+    }
+    nav .inner {
+      max-width: 1100px; margin: 0 auto; padding: 0 24px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    nav .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; }
+    nav .logo img { width: 28px; height: 28px; border-radius: 6px; }
+    nav .links { display: flex; gap: 28px; font-size: 14px; color: var(--text-muted); }
+    nav .links a { color: var(--text-muted); }
+    nav .links a:hover { color: var(--text); text-decoration: none; }
+    .btn {
+      display: inline-block; padding: 10px 24px; border-radius: 8px;
+      font-weight: 600; font-size: 14px; transition: all 0.2s;
+    }
+    .btn-primary { background: var(--accent); color: white; }
+    .btn-primary:hover { background: #b5502f; text-decoration: none; }
+    .btn-ghost { border: 1px solid var(--border); color: var(--text); }
+    .btn-ghost:hover { border-color: var(--text-muted); text-decoration: none; }
+
+    /* Hero */
+    .hero {
+      padding: 140px 24px 80px;
+      text-align: center;
+      max-width: 800px; margin: 0 auto;
+    }
+    .hero img.logo-img { width: 80px; height: 80px; margin-bottom: 24px; border-radius: 16px; }
+    .hero h1 { font-size: 52px; font-weight: 800; letter-spacing: -1.5px; margin-bottom: 16px; }
+    .hero h1 span { color: var(--accent); }
+    .hero p.sub { font-size: 20px; color: var(--text-muted); max-width: 600px; margin: 0 auto 32px; }
+    .hero .buttons { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+    .hero .badge-row { margin-top: 24px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+    .hero .badge-row img { height: 22px; }
+
+    /* Sections */
+    section { padding: 80px 24px; max-width: 1100px; margin: 0 auto; }
+    section.alt { background: var(--bg-2); max-width: 100%; }
+    section.alt .inner { max-width: 1100px; margin: 0 auto; }
+    .section-label { font-family: var(--mono); font-size: 12px; text-transform: uppercase; letter-spacing: 2px; color: var(--accent); margin-bottom: 8px; }
+    h2 { font-size: 36px; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 16px; }
+    h3 { font-size: 22px; font-weight: 600; margin-bottom: 8px; margin-top: 32px; }
+    p { margin-bottom: 16px; color: var(--text-muted); }
+    p strong { color: var(--text); }
+
+    /* Image */
+    .img-full {
+      width: 100%; border-radius: 12px; border: 1px solid var(--border);
+      margin: 24px 0; box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+    }
+
+    /* Code */
+    pre {
+      background: var(--code-bg); border: 1px solid var(--border);
+      border-radius: 10px; padding: 20px 24px; overflow-x: auto;
+      font-family: var(--mono); font-size: 13px; line-height: 1.6;
+      margin: 16px 0 24px; color: var(--text);
+    }
+    code { font-family: var(--mono); font-size: 13px; }
+    p code { background: var(--code-bg); padding: 2px 6px; border-radius: 4px; }
+
+    /* Feature grid */
+    .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; margin-top: 32px; }
+    .feature-card {
+      background: var(--bg-3); border: 1px solid var(--border);
+      border-radius: 12px; padding: 28px;
+    }
+    .feature-card h3 { margin-top: 0; font-size: 18px; }
+    .feature-card p { font-size: 14px; }
+    .feature-card .icon { font-size: 28px; margin-bottom: 12px; }
+
+    /* Case study */
+    .case-study {
+      background: var(--bg-3); border: 1px solid var(--border);
+      border-radius: 12px; padding: 32px; margin: 24px 0;
+    }
+    .case-study .label { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: var(--accent); margin-bottom: 8px; }
+    .case-study h3 { margin-top: 0; }
+
+    /* Table */
+    table { width: 100%; border-collapse: collapse; margin: 16px 0 24px; font-size: 14px; }
+    th { text-align: left; padding: 10px 16px; border-bottom: 2px solid var(--border); color: var(--text); font-weight: 600; }
+    td { padding: 10px 16px; border-bottom: 1px solid var(--border); color: var(--text-muted); }
+    td code { background: var(--code-bg); padding: 2px 6px; border-radius: 4px; }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--border); padding: 40px 24px;
+      text-align: center; color: var(--text-muted); font-size: 14px;
+    }
+    footer a { color: var(--text-muted); }
+
+    /* Best practice cards */
+    .bp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+    .bp-card { background: var(--bg-3); border-radius: 10px; padding: 20px; border-left: 3px solid var(--accent); }
+    .bp-card.dont { border-left-color: #e74c3c; }
+    .bp-card h4 { font-size: 14px; margin-bottom: 6px; }
+    .bp-card p { font-size: 13px; margin-bottom: 0; }
+
+    @media (max-width: 768px) {
+      .hero h1 { font-size: 36px; }
+      .hero p.sub { font-size: 17px; }
+      .features { grid-template-columns: 1fr; }
+      .bp-grid { grid-template-columns: 1fr; }
+      nav .links { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="inner">
+    <div class="logo">
+      <img src="https://raw.githubusercontent.com/neunaha/claws/main/extension/icon.png" alt="Claws">
+      Claws
+    </div>
+    <div class="links">
+      <a href="#features">Features</a>
+      <a href="#how-it-works">How It Works</a>
+      <a href="#best-practices">Best Practices</a>
+      <a href="#case-studies">Case Studies</a>
+      <a href="https://github.com/neunaha/claws">GitHub</a>
+    </div>
+    <a href="https://github.com/neunaha/claws#install" class="btn btn-primary">Get Started</a>
+  </div>
+</nav>
+
+<!-- Hero -->
+<div class="hero">
+  <img class="logo-img" src="https://raw.githubusercontent.com/neunaha/claws/main/extension/icon.png" alt="Claws">
+  <h1>Control any <span>terminal</span> from the outside.</h1>
+  <p class="sub">A VS Code extension that turns every integrated terminal into a programmable endpoint. JSON socket protocol. Zero dependencies. Built for AI pair programming.</p>
+  <div class="buttons">
+    <a href="https://github.com/neunaha/claws#install" class="btn btn-primary">Install in 30 seconds</a>
+    <a href="https://github.com/neunaha/claws" class="btn btn-ghost">View on GitHub</a>
+  </div>
+  <div class="badge-row">
+    <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT">
+    <img src="https://img.shields.io/badge/VS%20Code-1.93+-007ACC.svg" alt="VS Code">
+    <img src="https://img.shields.io/badge/dependencies-zero-brightgreen.svg" alt="Zero deps">
+    <img src="https://img.shields.io/github/stars/neunaha/claws?style=social" alt="Stars">
+  </div>
+</div>
+
+<!-- Problem/Solution -->
+<section>
+  <div class="section-label">The Problem</div>
+  <h2>VS Code terminals are a black box</h2>
+  <p>You run code, builds, AI agents, and servers inside VS Code terminals. But there's <strong>no API to control them from the outside</strong>. You can't list what's running. You can't send a command from a script. You can't read the output of an interactive session.</p>
+  <p><strong>Claws adds the missing API.</strong> A lightweight socket server inside VS Code accepts JSON commands from any external process — Python scripts, AI orchestrators, CI runners, or other machines on your network.</p>
+<pre>from claws import ClawsClient
+
+client = ClawsClient(".claws/claws.sock")
+worker = client.create("build", wrapped=True)
+result = client.exec(worker.id, "npm test")
+print(f"exit {result.exit_code}: {result.output}")
+client.close(worker.id)</pre>
+</section>
+
+<!-- Architecture -->
+<section class="alt" id="how-it-works">
+  <div class="inner">
+    <div class="section-label">Architecture</div>
+    <h2>How Claws works</h2>
+    <p>Claws runs inside VS Code as an extension. It creates a Unix socket server that external clients connect to. Wrapped terminals capture full pty output via <code>script(1)</code> — readable even for TUI sessions like Claude Code, vim, and htop.</p>
+    <img class="img-full" src="https://raw.githubusercontent.com/neunaha/claws/main/docs/images/architecture.png" alt="Claws Architecture">
+  </div>
+</section>
+
+<!-- Wrapped Terminals -->
+<section>
+  <div class="section-label">Core Feature</div>
+  <h2>Wrapped Terminals — read everything</h2>
+  <p>Regular terminals are write-only from the outside. Wrapped terminals log every pty byte to disk. Claws reads it back with ANSI escapes stripped — giving you <strong>clean text of everything that happened</strong>, including interactive TUI sessions.</p>
+  <img class="img-full" src="https://raw.githubusercontent.com/neunaha/claws/main/docs/images/wrapped-terminal.png" alt="Wrapped Terminal Data Flow">
+  <p>The terminal looks and behaves identically to a regular one. The <code>script(1)</code> layer is invisible. Create one from the dropdown: <strong>Claws Wrapped Terminal</strong>.</p>
+</section>
+
+<!-- Features -->
+<section class="alt" id="features">
+  <div class="inner">
+    <div class="section-label">Capabilities</div>
+    <h2>Everything you can do</h2>
+    <div class="features">
+      <div class="feature-card">
+        <div class="icon">&#9654;</div>
+        <h3>Terminal Management</h3>
+        <p>List all terminals with PID, name, and status. Create new ones with custom names and working directories. Focus, show, or close any terminal programmatically.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">&#128196;</div>
+        <h3>Full Pty Capture</h3>
+        <p>Wrapped terminals log everything via <code>script(1)</code>. Read back Claude Code conversations, vim sessions, build logs, REPL outputs — all as clean text.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">&#9881;</div>
+        <h3>Command Execution</h3>
+        <p>Run commands with captured stdout + stderr + exit code. File-based capture works in every terminal type without depending on shell integration.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">&#128274;</div>
+        <h3>Safety Gate</h3>
+        <p>Detects when a terminal runs a TUI (vim, claude, less). Warns before sending text that would land as TUI input. Non-blocking by default; strict mode available.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">&#128203;</div>
+        <h3>Bracketed Paste</h3>
+        <p>Multi-line text is auto-wrapped in bracketed paste mode so terminals receive it as one atomic input — no line-by-line fragmentation.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">&#127760;</div>
+        <h3>Cross-Device (planned)</h3>
+        <p>WebSocket transport with token auth + TLS for controlling terminals across machines. SSH tunnel pattern works today as an interim.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Protocol -->
+<section>
+  <div class="section-label">Protocol</div>
+  <h2>Simple JSON over Unix socket</h2>
+  <p>Newline-delimited JSON. Every request has an <code>id</code> for correlation. Works with any language that can open a socket.</p>
+  <table>
+    <thead>
+      <tr><th>Command</th><th>Input</th><th>Output</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>list</code></td><td><code>{}</code></td><td>All terminals with PID, name, log path</td></tr>
+      <tr><td><code>create</code></td><td><code>{name, wrapped?}</code></td><td>Terminal ID + log path</td></tr>
+      <tr><td><code>send</code></td><td><code>{id, text}</code></td><td>Delivered to terminal input</td></tr>
+      <tr><td><code>exec</code></td><td><code>{id, command}</code></td><td>stdout + stderr + exit code</td></tr>
+      <tr><td><code>readLog</code></td><td><code>{id}</code></td><td>Clean text from pty log</td></tr>
+      <tr><td><code>poll</code></td><td><code>{since?}</code></td><td>Command-completion events</td></tr>
+      <tr><td><code>close</code></td><td><code>{id}</code></td><td>Terminal disposed</td></tr>
+    </tbody>
+  </table>
+  <p><a href="https://github.com/neunaha/claws/blob/main/docs/protocol.md">Full protocol specification &rarr;</a></p>
+</section>
+
+<!-- AI Orchestration -->
+<section class="alt">
+  <div class="inner">
+    <div class="section-label">AI Pair Programming</div>
+    <h2>Built for autonomous agent orchestration</h2>
+    <p>Claws was designed for a specific use case: <strong>one AI session controlling multiple terminal sessions in parallel</strong>. Spawn workers, send mission prompts, monitor progress via pty log tailing, react to errors in real time, clean up when done.</p>
+    <img class="img-full" src="https://raw.githubusercontent.com/neunaha/claws/main/docs/images/ai-orchestration.png" alt="AI Orchestration Pattern">
+<pre># Spawn 3 parallel workers
+workers = {}
+for name, cmd in [("lint", "npm run lint"), ("test", "npm test"), ("build", "npm run build")]:
+    term = client.create(f"worker-{name}", wrapped=True)
+    client.send(term.id, cmd)
+    workers[name] = term
+
+# Monitor all workers
+import time
+time.sleep(10)
+for name, term in workers.items():
+    log = client.read_log(term.id, lines=20)
+    print(f"=== {name} ===\n{log}")
+    client.close(term.id)</pre>
+  </div>
+</section>
+
+<!-- Best Practices -->
+<section id="best-practices">
+  <div class="section-label">Best Practices</div>
+  <h2>Getting the most out of Claws</h2>
+
+  <div class="bp-grid">
+    <div class="bp-card">
+      <h4>Always use wrapped terminals for AI workers</h4>
+      <p>Without wrapping, you can send but can't read. Every autonomous worker should be <code>wrapped: true</code> so you can observe its state.</p>
+    </div>
+    <div class="bp-card">
+      <h4>Use stable IDs, not names</h4>
+      <p>Terminal names can be duplicated or changed. The numeric ID from <code>create</code> is unique and stable for the terminal's lifetime.</p>
+    </div>
+    <div class="bp-card">
+      <h4>Clean up terminals when done</h4>
+      <p>Every <code>create</code> should have a matching <code>close</code>. Stale terminals clutter the panel and leak pty log disk space.</p>
+    </div>
+    <div class="bp-card">
+      <h4>Use exec for shell commands, send for TUI input</h4>
+      <p><code>exec</code> captures output and waits. <code>send</code> is fire-and-forget. Use the right tool for the job.</p>
+    </div>
+    <div class="bp-card">
+      <h4>Add .claws/ to .gitignore</h4>
+      <p>Pty logs can contain passwords, tokens, and secrets. Never commit them. The default <code>.gitignore</code> already excludes <code>.claws/</code>.</p>
+    </div>
+    <div class="bp-card">
+      <h4>Monitor with tail + grep, not polling</h4>
+      <p>For real-time observation, <code>tail -F logfile | grep --line-buffered pattern</code> is more responsive than periodic <code>readLog</code> calls.</p>
+    </div>
+    <div class="bp-card dont">
+      <h4>Don't use script -F with TUI sessions</h4>
+      <p>The <code>-F</code> flush flag splits Ink-based TUI frames and causes visual corruption in Claude Code. Default buffering is correct.</p>
+    </div>
+    <div class="bp-card dont">
+      <h4>Don't send into terminals you can't observe</h4>
+      <p>If you don't know what's running in a terminal (shell vs TUI), check with <code>list</code> first. Blind sends into unknown TUIs corrupt their input state.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Case Studies -->
+<section class="alt" id="case-studies">
+  <div class="inner">
+    <div class="section-label">Case Studies</div>
+    <h2>Real-world usage patterns</h2>
+
+    <div class="case-study">
+      <div class="label">Case Study 1</div>
+      <h3>AI Pair Programming — Parallel Codebase Audit</h3>
+      <p>An orchestrator spawned 3 wrapped terminals simultaneously, each running an independent analysis task (latency profiling, token auditing, critical-path optimization). Each worker received a scoped mission prompt via <code>send</code>, ran autonomously for ~5 minutes, and wrote its findings to a designated output file. The orchestrator monitored all 3 via <code>tail -F</code> on their pty logs, reacting to events as they arrived. Total: 3 audit reports (140 + 265 + 420 lines) produced in parallel in ~6 minutes.</p>
+    </div>
+
+    <div class="case-study">
+      <div class="label">Case Study 2</div>
+      <h3>Multi-Commit Implementation Fleet</h3>
+      <p>A single worker terminal received a mission to ship 6 atomic git commits implementing pipeline optimizations. The worker read prior analysis files, edited runbooks and Python code, ran verification after each commit, and produced 6 clean commits in 6 minutes 42 seconds — 393 insertions across committee.py, 4 runbook YAMLs, and a cost-log hook. The orchestrator monitored via pty log events and narrated each commit as it landed.</p>
+    </div>
+
+    <div class="case-study">
+      <div class="label">Case Study 3</div>
+      <h3>Full Infographic Pipeline Test</h3>
+      <p>The orchestrator created a wrapped terminal, launched Claude Code inside it, and fired a <code>/infographic-new</code> command — triggering a 10-tier content generation pipeline. The orchestrator monitored tier-by-tier progress via background polling tasks, inspected intermediate artifacts (research JSON, angle selection, design brief, jury verdicts), and read the final committee verdict + 30/30 visual critic score. Total pipeline time: 25 minutes. Result: a production-ready infographic with committee composite score 8.56.</p>
+    </div>
+
+    <div class="case-study">
+      <div class="label">Case Study 4</div>
+      <h3>Graphify-Driven Code Optimization</h3>
+      <p>A worker terminal was directed to use a knowledge graph (graphify) as its primary reasoning surface to identify pipeline bottlenecks. The worker ran graph queries to surface god nodes, cross-file dependencies, and prior audit findings — producing a 100-line optimization plan that identified $30/run savings from CLAUDE.md trimming, $5.69/run from committee-chair fusion, and a $165 cache-read tax that no top-down code review would have surfaced. The graph-derived insights validated 2 of the 5 optimization proposals independently.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Cross-Device -->
+<section>
+  <div class="section-label">Coming Soon</div>
+  <h2>Cross-device terminal control</h2>
+  <p>Control terminals on remote machines via WebSocket. Token-based auth + TLS. Discover other Claws instances on your LAN automatically.</p>
+  <img class="img-full" src="https://raw.githubusercontent.com/neunaha/claws/main/docs/images/cross-device.png" alt="Cross-Device Architecture">
+  <p><strong>Available today via SSH tunnel:</strong></p>
+<pre>ssh -L 9999:/remote/workspace/.claws/claws.sock user@remote
+# Then connect locally
+client = ClawsClient("/tmp/forwarded.sock")</pre>
+</section>
+
+<!-- CTA -->
+<section class="alt">
+  <div class="inner" style="text-align: center; padding: 60px 24px;">
+    <h2>Start controlling your terminals</h2>
+    <p style="max-width: 500px; margin: 0 auto 24px;">Clone the repo, symlink the extension, reload VS Code. You're up in 30 seconds.</p>
+    <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+      <a href="https://github.com/neunaha/claws#install" class="btn btn-primary">Install Now</a>
+      <a href="https://github.com/neunaha/claws" class="btn btn-ghost">Star on GitHub</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <p>Claws is open-source under the <a href="https://github.com/neunaha/claws/blob/main/LICENSE">MIT License</a>.</p>
+  <p style="margin-top: 8px;">Built by <a href="https://github.com/neunaha">Anish Neunaha</a> &middot; <a href="https://github.com/neunaha/claws">GitHub</a> &middot; <a href="https://github.com/neunaha/claws/blob/main/CONTRIBUTING.md">Contribute</a></p>
+</footer>
+
+</body>
+</html>
