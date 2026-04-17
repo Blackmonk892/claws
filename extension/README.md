@@ -1,11 +1,19 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/neunaha/claws/main/docs/images/social-preview.png" alt="Claws Banner" width="720">
+  <img src="https://raw.githubusercontent.com/neunaha/claws/main/extension/icon.png" alt="Claws" width="100" height="100">
 </p>
 
 <h1 align="center">Claws</h1>
 
 <p align="center">
-  <strong>Your AI just got terminal superpowers.</strong>
+  <strong>Control any VS Code terminal from the outside.</strong>
+</p>
+
+<p align="center">
+  <a href="#install">Install</a> &middot;
+  <a href="#usage">Usage</a> &middot;
+  <a href="#features">Features</a> &middot;
+  <a href="docs/protocol.md">Protocol</a> &middot;
+  <a href="#configuration">Config</a>
 </p>
 
 <p align="center">
@@ -13,125 +21,145 @@
   <img src="https://img.shields.io/badge/VS%20Code-1.93+-007ACC.svg" alt="VS Code">
   <img src="https://img.shields.io/badge/dependencies-zero-brightgreen.svg" alt="Zero Deps">
   <img src="https://img.shields.io/badge/macOS%20%7C%20Linux-supported-lightgrey.svg" alt="Platform">
-  <img src="https://img.shields.io/github/stars/neunaha/claws?style=social" alt="Stars">
 </p>
 
 ---
 
-One extension. One socket. Full control over every VS Code terminal from the outside. Your AI writes code in one terminal, tests in another, deploys in a third — while you watch.
+Claws is a VS Code extension that exposes your integrated terminals over a local socket. List, create, send commands, capture output, read TUI sessions, and close terminals — all from Python, Node, or any language that speaks JSON.
 
-~~Copy the command from Claude. Paste it in the terminal. Copy the output. Paste it back. Repeat 47 times.~~ **That loop is over.**
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/neunaha/claws/main/docs/images/hero-cinematic.png" alt="Claws Terminal Orchestration" width="720">
-</p>
+**Built for AI pair programming.** One AI agent spawns, monitors, and drives multiple terminals in parallel — watching output, reacting to errors, sending prompts. Works with Claude Code, Cursor, Copilot, or any terminal-based workflow.
 
 ---
 
 ## Install
 
+**macOS / Linux** — one command:
 ```bash
-git clone https://github.com/neunaha/claws.git
-cd claws
-ln -s "$(pwd)/extension" ~/.vscode/extensions/neunaha.claws-0.1.0
-chmod +x scripts/terminal-wrapper.sh
-# Cmd+Shift+P → "Developer: Reload Window"
+bash <(curl -fsSL https://raw.githubusercontent.com/neunaha/claws/main/scripts/install.sh)
 ```
+
+**Windows** — one command (PowerShell):
+```powershell
+irm https://raw.githubusercontent.com/neunaha/claws/main/scripts/install.ps1 | iex
+```
+
+The installer handles everything: clones the repo, links the extension (VS Code / Cursor / Windsurf), installs the Python client, and auto-registers the MCP server globally. Permissions handled automatically.
+
+After install — **reload VS Code** then run the live demo:
+```bash
+bash ~/.claws-src/scripts/test-install.sh
+```
+
+That's it. Open the terminal dropdown (arrow next to `+`) — you'll see **"Claws Wrapped Terminal"**.
 
 ---
 
-## 5 Lines to Full Control
+## Usage
 
 ```python
 from claws import ClawsClient
 
 client = ClawsClient(".claws/claws.sock")
+
+# See all terminals
+for t in client.list():
+    print(f"{t.id}  {t.name}  pid={t.pid}")
+
+# Create a terminal you can read
 worker = client.create("build", wrapped=True)
+
+# Run a command, get the output
 result = client.exec(worker.id, "npm test")
-print(f"exit {result.exit_code}: {result.output}")
+print(result.output)       # full stdout + stderr
+print(result.exit_code)    # 0
+
+# Read a TUI session (Claude Code, vim, htop)
+log = client.read_log(worker.id, lines=50)
+
+# Done
 client.close(worker.id)
 ```
 
----
+Or use raw sockets from any language:
 
-## Capabilities
-
-### Terminal Management
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/neunaha/claws/main/docs/images/cap-terminal-mgmt.png" alt="Terminal Management" width="720">
-</p>
-
-List every terminal with PID, name, and status. Create new ones with custom names and working directories. Focus, show, or close any terminal programmatically. Every terminal gets a stable numeric ID that persists for the session — no fragile name-matching.
-
----
-
-### Full Pty Capture — Read Everything
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/neunaha/claws/main/docs/images/cap-pty-capture.png" alt="Full Pty Capture" width="720">
-</p>
-
-Regular terminals are write-only from the outside. **Wrapped terminals change that.** They run your shell inside `script(1)`, logging every pty byte to disk. Claws reads it back with ANSI escapes stripped — giving you clean, readable text of everything that happened.
-
-Read back: Claude Code conversations, vim sessions, build logs, REPL outputs, htop dashboards — anything rendered to a terminal.
-
-The terminal looks and behaves identically to a regular one. The capture layer is invisible.
-
-```python
-# Read the last 50 lines of a wrapped terminal
-log = client.read_log(terminal_id, lines=50)
-print(log)
-# $ npm test
-# PASS src/utils.test.ts (3.421s)
-#   ✓ should parse JSON correctly (5ms)
-# Tests: 2 passed, 2 total
-```
-
-**Create from the UI:** Click the dropdown arrow next to `+` → **"Claws Wrapped Terminal"**
-
----
-
-### Command Execution with Structured Output
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/neunaha/claws/main/docs/images/cap-exec.png" alt="Command Execution" width="720">
-</p>
-
-Two modes:
-
-- **`send`** — fire and forget. Text arrives at whatever input is active (shell, TUI, REPL). Supports multi-line via bracketed paste + raw keystrokes (`\r`, `\x03` for Ctrl+C).
-- **`exec`** — wait for completion, get structured results. stdout + stderr + exit code. File-based capture that works in every terminal type without shell integration.
-
-```python
-result = client.exec(term_id, "git status --porcelain")
-# result.output = "M  src/main.ts\n"
-# result.exit_code = 0
+```bash
+echo '{"id":1,"cmd":"list"}' | nc -U .claws/claws.sock
 ```
 
 ---
 
-### Safety Gate — Foreground Process Detection
+## Features
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/neunaha/claws/main/docs/images/cap-safety.png" alt="Safety Gate" width="720">
-</p>
+**Terminal Control** — list, create, focus, send text, close. Stable numeric IDs. Custom names and working directories.
 
-Before sending text, Claws checks what's running in the terminal. If it's a TUI (vim, claude, less, top) instead of a shell, it warns you — because your text would land as TUI input, not a shell command.
+**Wrapped Terminals** — create terminals under `script(1)` that log every pty byte to disk. Read back any session — shells, TUIs, REPLs, AI agents — with ANSI escapes stripped to clean text. Available from the terminal dropdown or via API.
 
-**Default:** warn and proceed (non-blocking — AI pair programming needs to send into Claude Code's TUI intentionally). **Strict mode:** hard-block with `strict: true`.
+**Command Execution** — run commands with captured stdout + stderr + exit code. File-based capture that works in any terminal, no shell integration dependency.
+
+**Multi-line Paste** — auto-wraps multi-line text in bracketed paste mode so terminals receive it as one atomic input, not line-by-line.
+
+**Safety Gate** — detects when a terminal is running a TUI (vim, claude, less) and warns before sending text that would land as TUI input instead of a shell command.
+
+**Event Streaming** — poll for finished-command events across all terminals, or tail pty logs in real-time for wrapped terminals.
+
+**Zero Dependencies** — the extension is pure JavaScript with no npm packages. The Python client is stdlib-only.
 
 ---
 
-### MCP Server — Native Claude Code Integration
+## Configuration
+
+| Setting | Default | What it does |
+|---|---|---|
+| `claws.socketPath` | `.claws/claws.sock` | Socket location (relative to workspace) |
+| `claws.logDirectory` | `.claws/terminals` | Where wrapped terminal logs go |
+| `claws.defaultWrapped` | `false` | Make all new terminals wrapped by default |
+| `claws.maxOutputBytes` | `262144` | Max output per command event (256KB) |
+| `claws.maxHistory` | `500` | Command events retained in ring buffer |
+
+---
+
+## Protocol
+
+Newline-delimited JSON over Unix socket. [Full spec →](docs/protocol.md)
+
+```
+{"id":1, "cmd":"list"}                                    → terminals
+{"id":2, "cmd":"create", "name":"w", "wrapped":true}      → id + logPath
+{"id":3, "cmd":"send", "id":"2", "text":"ls -la"}         → ok
+{"id":4, "cmd":"readLog", "id":"2"}                        → clean text
+{"id":5, "cmd":"close", "id":"2"}                          → ok
+```
+
+---
+
+## How It Works
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/neunaha/claws/main/docs/images/cap-mcp.png" alt="MCP Server" width="720">
+  <img src="https://raw.githubusercontent.com/neunaha/claws/main/docs/images/architecture.png" alt="Claws Architecture" width="720">
 </p>
 
-Register one JSON block in any project. Claude Code instantly gets 8 terminal control tools as native MCP calls. No imports, no client library, no socket code.
+Claws runs a socket server inside VS Code. Clients connect and control terminals via JSON commands. Wrapped terminals capture full pty output via `script(1)` — readable even for TUI sessions.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/neunaha/claws/main/docs/images/wrapped-terminal.png" alt="Wrapped Terminal Data Flow" width="720">
+</p>
+
+### Cross-Device Control (planned)
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/neunaha/claws/main/docs/images/cross-device.png" alt="Cross-Device Architecture" width="720">
+</p>
+
+WebSocket transport with token auth + TLS for controlling terminals across machines. SSH tunnel pattern works today as an interim solution.
+
+---
+
+## MCP Server — instant Claude Code integration
+
+Register Claws as an MCP server and every Claude Code session gets native terminal control tools — no client library needed.
 
 ```json
+// .claude/settings.json (in any project)
 {
   "mcpServers": {
     "claws": {
@@ -143,133 +171,26 @@ Register one JSON block in any project. Claude Code instantly gets 8 terminal co
 }
 ```
 
-**Tools injected:** `claws_list` · `claws_create` · `claws_send` · `claws_exec` · `claws_read_log` · `claws_poll` · `claws_close` · `claws_worker`
+Claude Code immediately gets: `claws_list`, `claws_create`, `claws_send`, `claws_exec`, `claws_read_log`, `claws_poll`, `claws_close`, `claws_worker`.
+
+No imports. No client code. Just register the server and your AI can control terminals.
 
 ---
 
-### Cross-Device Control (planned)
+## Deep Dives
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/neunaha/claws/main/docs/images/cap-crossdevice.png" alt="Cross-Device Control" width="720">
-</p>
-
-Control terminals on remote machines via WebSocket with token auth + TLS. Team configuration with per-device access control. **Available today via SSH tunnel:**
-
-```bash
-ssh -L 9999:/remote/.claws/claws.sock user@remote
-client = ClawsClient("/tmp/forwarded.sock")
-```
-
----
-
-## Architecture
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/neunaha/claws/main/docs/images/architecture.png" alt="Architecture" width="720">
-</p>
-
-### How Wrapped Terminals Work
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/neunaha/claws/main/docs/images/wrapped-terminal.png" alt="Wrapped Terminal Data Flow" width="720">
-</p>
-
----
-
-## Protocol
-
-Newline-delimited JSON over Unix socket.
-
-| Command | What it does |
-|---|---|
-| `list` | Enumerate all terminals with PID, name, log path |
-| `create` | Open a new terminal (optionally wrapped for pty capture) |
-| `show` | Focus a terminal in the panel |
-| `send` | Send text into a terminal (shell or TUI) |
-| `exec` | Execute command with captured stdout + stderr + exit code |
-| `readLog` | Read wrapped terminal's pty log with ANSI stripping |
-| `poll` | Stream shell-integration command events |
-| `close` | Dispose a terminal |
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/neunaha/claws/main/docs/images/protocol-flow.png" alt="Protocol Flow" width="720">
-</p>
-
----
-
-## AI Pair Programming
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/neunaha/claws/main/docs/images/ai-orchestration.png" alt="AI Orchestration" width="720">
-</p>
-
-Spawn multiple Claude Code sessions in separate terminals. Send mission prompts to each. Monitor progress via pty log tailing. React to errors in real time. Clean up when done.
-
-```python
-# Spawn 3 parallel workers
-for name, cmd in [("lint","npm run lint"),("test","npm test"),("build","npm run build")]:
-    term = client.create(f"worker-{name}", wrapped=True)
-    client.send(term.id, cmd)
-
-# Monitor all
-import time; time.sleep(10)
-for name in ["lint","test","build"]:
-    log = client.read_log(workers[name].id, lines=20)
-    print(f"=== {name} ===\n{log}")
-```
-
----
-
-## Configuration
-
-| Setting | Default | Description |
-|---|---|---|
-| `claws.socketPath` | `.claws/claws.sock` | Socket location (relative to workspace) |
-| `claws.logDirectory` | `.claws/terminals` | Wrapped terminal log directory |
-| `claws.defaultWrapped` | `false` | Make all new terminals wrapped by default |
-| `claws.maxOutputBytes` | `262144` | Max output per command event (256KB) |
-| `claws.maxHistory` | `500` | Event ring buffer size |
-
----
-
-## Prompt Templates
-
-7 battle-tested mission prompt templates for AI terminal orchestration:
-
-1. **Single Mission Worker** — one terminal, one scoped task, one deliverable
-2. **Analysis + Write Findings** — read-only audit with structured output
-3. **Multi-Commit Implementation** — N atomic commits with verification
-4. **Interactive Pair Programming** — ongoing multi-turn conversation
-5. **Parallel Fleet Dispatch** — N workers, N terminals, aggregated results
-6. **Graphify-Driven Exploration** — knowledge graph as primary reasoning surface
-7. **Error Recovery / Debugging** — diagnose, fix, verify with minimal diffs
-
-[Full templates →](https://github.com/neunaha/claws/blob/main/.claude/skills/prompt-templates/SKILL.md)
-
----
-
-## Documentation
-
-| Resource | Description |
-|---|---|
-| [Complete Guide](https://github.com/neunaha/claws/blob/main/docs/guide.md) | 12-chapter course, install to fleet orchestration |
-| [Feature Reference](https://github.com/neunaha/claws/blob/main/docs/features.md) | Every command, parameter, edge case |
-| [Protocol Spec](https://github.com/neunaha/claws/blob/main/docs/protocol.md) | Full JSON socket protocol |
-| [Prompt Templates](https://github.com/neunaha/claws/blob/main/.claude/skills/prompt-templates/SKILL.md) | 7 mission prompt patterns |
-| [Contributing](https://github.com/neunaha/claws/blob/main/CONTRIBUTING.md) | Dev setup + how to contribute |
-| [Security](https://github.com/neunaha/claws/blob/main/SECURITY.md) | Trust model + vulnerability reporting |
-| [Landing Page](https://neunaha.github.io/claws/) | Full website with visuals + case studies |
-
----
+- **[Complete Feature Reference](docs/features.md)** — every feature explained in depth with parameters, examples, and internals
+- **[Protocol Specification](docs/protocol.md)** — full socket protocol spec with all commands, fields, and error codes
+- **[Prompt Templates](/.claude/skills/prompt-templates/SKILL.md)** — 7 production-grade templates for worker missions, fleet dispatch, pair-programming, debugging, and graphify-driven exploration
 
 ## Roadmap
 
-- **v0.2** — TypeScript rewrite, Marketplace publish, status bar, tests
-- **v0.3** — WebSocket transport, token auth, TLS, cross-device
+- **v0.2** — TypeScript rewrite, VS Code Marketplace publish, status bar, tests
+- **v0.3** — WebSocket transport for cross-device control, token auth, TLS
 - **v0.4** — Team config, device discovery, CLI tool, web dashboard
 
 ---
 
 ## License
 
-[MIT](https://github.com/neunaha/claws/blob/main/LICENSE) · [Anish Neunaha](https://github.com/neunaha) · [Website](https://neunaha.github.io/claws/)
+[MIT](LICENSE) &copy; Anish Neunaha
