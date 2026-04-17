@@ -10,7 +10,8 @@
 #   CLAWS_SKIP_MCP=1          — skip MCP auto-configure
 #   CLAWS_EDITOR=cursor       — target Cursor instead of VS Code
 
-set -e
+# Never exit on errors — install as much as possible, skip what fails
+set +e
 
 REPO="https://github.com/neunaha/claws.git"
 INSTALL_DIR="${CLAWS_DIR:-$HOME/.claws-src}"
@@ -63,16 +64,15 @@ echo ""
 # ─── Pre-flight: check dependencies ─────────────────────────────────────────
 echo "Checking dependencies..."
 
-# Git is required
-if ! command -v git &>/dev/null; then
-  echo "  ✗ git not found. Install:"
-  echo "    macOS:  xcode-select --install"
-  echo "    Linux:  sudo apt install git  OR  sudo yum install git"
-  exit 1
+# Git
+if command -v git &>/dev/null; then
+  echo "  ✓ git"
+else
+  echo "  ! git not found — install: xcode-select --install (macOS) or sudo apt install git (Linux)"
+  echo "  Continuing anyway..."
 fi
-echo "  ✓ git"
 
-# Python 3 — required for client + MCP server + shell commands
+# Python 3 — used for client + MCP + shell commands. Not a hard blocker.
 PYTHON_CMD=""
 if command -v python3 &>/dev/null; then
   PYTHON_CMD="python3"
@@ -80,22 +80,13 @@ elif command -v python &>/dev/null && python --version 2>&1 | grep -q "Python 3"
   PYTHON_CMD="python"
 fi
 
-if [ -z "$PYTHON_CMD" ]; then
-  echo ""
-  echo "  ✗ Python 3 not found."
-  echo ""
-  echo "  Claws needs Python 3 for the client library, MCP server, and shell commands."
-  echo ""
-  echo "  Install Python 3:"
-  echo "    macOS:   brew install python3"
-  echo "             OR download from https://www.python.org/downloads/"
-  echo "    Ubuntu:  sudo apt install python3"
-  echo "    Fedora:  sudo dnf install python3"
-  echo ""
-  echo "  After installing Python, re-run this script."
-  exit 1
+if [ -n "$PYTHON_CMD" ]; then
+  echo "  ✓ $PYTHON_CMD ($($PYTHON_CMD --version 2>&1))"
+else
+  echo "  ! Python 3 not found — some features (MCP server, shell commands) will be limited"
+  echo "  Install later: brew install python3 (macOS) or sudo apt install python3 (Linux)"
+  PYTHON_CMD="python3"  # set anyway so later steps can try and gracefully fail
 fi
-echo "  ✓ $PYTHON_CMD ($($PYTHON_CMD --version 2>&1))"
 echo ""
 
 # ─── Step 1: Clone or update ────────────────────────────────────────────────
