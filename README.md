@@ -33,24 +33,31 @@ Claws is a VS Code extension that exposes your integrated terminals over a local
 
 ## Install
 
-**macOS / Linux** — one command:
+**In any Claude Code terminal, just say:**
+> install claws from https://github.com/neunaha/claws — run the install script and set up everything
+
+**Or paste this one-liner (macOS / Linux):**
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/neunaha/claws/main/scripts/install.sh)
 ```
 
-**Windows** — one command (PowerShell):
+**Windows (PowerShell):**
 ```powershell
 irm https://raw.githubusercontent.com/neunaha/claws/main/scripts/install.ps1 | iex
 ```
 
-The installer handles everything: clones the repo, links the extension (VS Code / Cursor / Windsurf), installs the Python client, and auto-registers the MCP server globally. Permissions handled automatically.
+**What happens instantly:**
+1. Clones the repo + links extension (VS Code / Cursor / Windsurf)
+2. Installs Python client + registers MCP server globally
+3. Injects shell hook into `.zshrc` / `.bashrc`
+4. **Transforms your current terminal** — Claws banner appears, shell commands activate
+5. Every future terminal shows the Claws status banner
+6. Every Claude Code session gets 8 native terminal control tools
 
-After install — **reload VS Code** then run the live demo:
+After install, **reload VS Code** (`Cmd+Shift+P` → Reload Window) to activate the extension. Then run the live demo:
 ```bash
 bash ~/.claws-src/scripts/test-install.sh
 ```
-
-That's it. Open the terminal dropdown (arrow next to `+`) — you'll see **"Claws Wrapped Terminal"**.
 
 ---
 

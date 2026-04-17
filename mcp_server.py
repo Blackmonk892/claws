@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 """Claws MCP Server — expose terminal control as native Claude Code tools.
 
-Register in any project's .claude/settings.json:
+Powered by Claude Opus.
+
+Install Claws (auto-registers this MCP server globally):
+    bash <(curl -fsSL https://raw.githubusercontent.com/neunaha/claws/main/scripts/install.sh)
+
+Or register manually in any project's .claude/settings.json:
 
     "mcpServers": {
         "claws": {
             "command": "python3",
-            "args": ["/path/to/claws/mcp_server.py"],
+            "args": ["~/.claws-src/mcp_server.py"],
             "env": {
                 "CLAWS_SOCKET": ".claws/claws.sock"
             }
