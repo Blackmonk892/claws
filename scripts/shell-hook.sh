@@ -110,27 +110,37 @@ claws-run() {
   local id="$1"; shift
   local cmd="$*"
   local sock="${CLAWS_SOCKET:-.claws/claws.sock}"
-  python3 -c "
-import json, socket, time, uuid, os
+  # Write command to temp file to avoid shell injection via $cmd interpolation
+  local tmpf="/tmp/claws-cmd-$$.txt"
+  printf '%s' "$cmd" > "$tmpf"
+  python3 - "$sock" "$id" "$tmpf" <<'PYEOF'
+import json, socket, time, uuid, sys
 from pathlib import Path
-s = socket.socket(socket.AF_UNIX)
-s.connect('$sock')
-eid = uuid.uuid4().hex[:8]
-base = Path('/tmp/claws-exec'); base.mkdir(exist_ok=True)
-out_f = base / f'{eid}.out'; done_f = base / f'{eid}.done'
-wrapper = f'{{ $cmd; }} > {out_f} 2>&1; echo \$? > {done_f}'
-s.sendall((json.dumps({'id':1,'cmd':'send','id':'$id','text':wrapper}) + '\n').encode())
-s.recv(4096); s.close()
-deadline = time.time() + 180
-while time.time() < deadline:
-    if done_f.exists(): break
-    time.sleep(0.2)
-if done_f.exists():
-    print(f'exit {done_f.read_text().strip()}')
-    print(out_f.read_text() if out_f.exists() else '')
-    out_f.unlink(missing_ok=True); done_f.unlink(missing_ok=True)
-else: print('timeout')
-" 2>/dev/null || echo "error: cannot connect to $sock"
+sock_path, term_id, cmd_file = sys.argv[1], sys.argv[2], sys.argv[3]
+cmd = Path(cmd_file).read_text()
+Path(cmd_file).unlink(missing_ok=True)
+s = socket.socket(socket.AF_UNIX); s.settimeout(10)
+try:
+    s.connect(sock_path)
+    eid = uuid.uuid4().hex[:8]
+    base = Path('/tmp/claws-exec'); base.mkdir(exist_ok=True)
+    out_f = base / f'{eid}.out'; done_f = base / f'{eid}.done'
+    wrapper = f'{{ {cmd}; }} > {out_f} 2>&1; echo $? > {done_f}'
+    req = json.dumps({'id':1,'cmd':'send','id':term_id,'text':wrapper})
+    s.sendall((req + '\n').encode())
+    s.recv(4096)
+    deadline = time.time() + 180
+    while time.time() < deadline:
+        if done_f.exists(): break
+        time.sleep(0.2)
+    if done_f.exists():
+        print(f'exit {done_f.read_text().strip()}')
+        print(out_f.read_text() if out_f.exists() else '')
+        out_f.unlink(missing_ok=True); done_f.unlink(missing_ok=True)
+    else: print('timeout')
+except Exception as e: print(f'error: {e}')
+finally: s.close()
+PYEOF
 }
 
 claws-log() {

@@ -62,16 +62,16 @@ echo ""
 
 # ─── Step 1: Clone or update ────────────────────────────────────────────────
 if [ -d "$INSTALL_DIR" ]; then
-  echo "[1/6] Updating existing install..."
+  echo "[1/8] Updating existing install..."
   cd "$INSTALL_DIR" && git pull --quiet origin main 2>/dev/null || git pull origin main
 else
-  echo "[1/6] Cloning..."
+  echo "[1/8] Cloning..."
   git clone --quiet "$REPO" "$INSTALL_DIR" 2>/dev/null || git clone "$REPO" "$INSTALL_DIR"
 fi
 cd "$INSTALL_DIR"
 
 # ─── Step 2: Extension symlink with permission handling ─────────────────────
-echo "[2/6] Installing extension to $EXT_DIR ..."
+echo "[2/8] Installing extension to $EXT_DIR ..."
 # Remove stale links (any version)
 rm -f "$EXT_DIR"/neunaha.claws-* 2>/dev/null || sudo rm -f "$EXT_DIR"/neunaha.claws-* 2>/dev/null || true
 # Create symlink — try without sudo first, fall back to sudo
@@ -85,14 +85,14 @@ else
 fi
 
 # ─── Step 3: Executable permissions ─────────────────────────────────────────
-echo "[3/6] Setting permissions..."
+echo "[3/8] Setting permissions..."
 chmod +x scripts/terminal-wrapper.sh scripts/install.sh scripts/test-install.sh 2>/dev/null || true
 chmod +x mcp_server.py 2>/dev/null || true
 echo "  ✓ Scripts executable"
 
 # ─── Step 4: Python client ──────────────────────────────────────────────────
 if [ "${CLAWS_SKIP_PIP:-}" != "1" ]; then
-  echo "[4/6] Installing Python client..."
+  echo "[4/8] Installing Python client..."
   PIP_CMD=""
   if command -v pip3 &>/dev/null; then PIP_CMD="pip3"
   elif command -v pip &>/dev/null; then PIP_CMD="pip"
@@ -113,13 +113,13 @@ if [ "${CLAWS_SKIP_PIP:-}" != "1" ]; then
     echo "  (skipped — pip not found)"
   fi
 else
-  echo "[4/6] Skipping Python client (CLAWS_SKIP_PIP=1)"
+  echo "[4/8] Skipping Python client (CLAWS_SKIP_PIP=1)"
 fi
 
 # ─── Step 5: Auto-configure MCP server ──────────────────────────────────────
 MCP_PATH="$INSTALL_DIR/mcp_server.py"
 if [ "${CLAWS_SKIP_MCP:-}" != "1" ]; then
-  echo "[5/6] Configuring MCP server..."
+  echo "[5/8] Configuring MCP server..."
 
   # Global Claude Code settings — auto-register claws MCP server
   CLAUDE_SETTINGS="$HOME/.claude/settings.json"
@@ -161,7 +161,7 @@ print('  ✓ Created ~/.claude/settings.json with MCP server')
 " 2>/dev/null || echo "  ! Could not create settings — add MCP manually"
   fi
 else
-  echo "[5/6] Skipping MCP config (CLAWS_SKIP_MCP=1)"
+  echo "[5/8] Skipping MCP config (CLAWS_SKIP_MCP=1)"
 fi
 
 # ─── Step 6: Global Claude Code context injection ──────────────────────────
@@ -172,6 +172,48 @@ mkdir -p "$HOME/.claude/rules"
 if [ -f "$INSTALL_DIR/rules/claws-default-behavior.md" ]; then
   cp "$INSTALL_DIR/rules/claws-default-behavior.md" "$HOME/.claude/rules/" 2>/dev/null
   echo "  ✓ Default behavior rule installed — Claude now prefers Claws terminals"
+fi
+
+# Inject Claws section into current project's CLAUDE.md (if in a project)
+CLAWS_TEMPLATE="$INSTALL_DIR/templates/CLAUDE.claws.md"
+if [ -f "$CLAWS_TEMPLATE" ]; then
+  # Find the workspace root (look for .git or CLAUDE.md going up)
+  PROJECT_ROOT=""
+  _dir="$(pwd)"
+  while [ "$_dir" != "/" ]; do
+    if [ -d "$_dir/.git" ] || [ -f "$_dir/CLAUDE.md" ]; then
+      PROJECT_ROOT="$_dir"
+      break
+    fi
+    _dir="$(dirname "$_dir")"
+  done
+
+  if [ -n "$PROJECT_ROOT" ]; then
+    CLAUDE_MD="$PROJECT_ROOT/CLAUDE.md"
+    if [ -f "$CLAUDE_MD" ]; then
+      if grep -q "CLAWS — Terminal Orchestration Active" "$CLAUDE_MD" 2>/dev/null; then
+        # Already injected — replace with latest version
+        python3 -c "
+import re, pathlib
+md = pathlib.Path('$CLAUDE_MD').read_text()
+template = pathlib.Path('$CLAWS_TEMPLATE').read_text()
+pattern = r'## CLAWS — Terminal Orchestration Active.*?Type \x60/claws-help\x60 for the full prompt guide\.'
+md = re.sub(pattern, template.strip(), md, flags=re.DOTALL)
+pathlib.Path('$CLAUDE_MD').write_text(md)
+print('  ✓ CLAUDE.md Claws section updated')
+" 2>/dev/null || echo "  ✓ CLAUDE.md already has Claws section"
+      else
+        # Append to end
+        printf "\n\n" >> "$CLAUDE_MD"
+        cat "$CLAWS_TEMPLATE" >> "$CLAUDE_MD"
+        echo "  ✓ CLAUDE.md injected with Claws orchestration context"
+      fi
+    else
+      # Create new CLAUDE.md with Claws section
+      cp "$CLAWS_TEMPLATE" "$CLAUDE_MD"
+      echo "  ✓ Created CLAUDE.md with Claws orchestration context"
+    fi
+  fi
 fi
 
 # Copy orchestration engine skill

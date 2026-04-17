@@ -6,12 +6,12 @@ Powered by Claude Opus.
 Install Claws (auto-registers this MCP server globally):
     bash <(curl -fsSL https://raw.githubusercontent.com/neunaha/claws/main/scripts/install.sh)
 
-Or register manually in any project's .claude/settings.json:
+Or register manually (use FULL absolute path — tilde does NOT expand in JSON):
 
     "mcpServers": {
         "claws": {
             "command": "python3",
-            "args": ["~/.claws-src/mcp_server.py"],
+            "args": ["/home/YOUR_USER/.claws-src/mcp_server.py"],
             "env": {
                 "CLAWS_SOCKET": ".claws/claws.sock"
             }

@@ -30,12 +30,25 @@ fi
 
 # Test 2: List terminals
 echo "── Test 2: List terminals ──"
-RESP=$(echo '{"id":1,"cmd":"list"}' | nc -U "$SOCK" 2>/dev/null)
-if echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['ok']" 2>/dev/null; then
-  COUNT=$(echo "$RESP" | python3 -c "import sys,json; print(len(json.load(sys.stdin)['terminals']))")
+COUNT=$(python3 -c "
+import json, socket
+s = socket.socket(socket.AF_UNIX); s.settimeout(5)
+try:
+    s.connect('$SOCK')
+    s.sendall(b'{\"id\":1,\"cmd\":\"list\"}\n')
+    buf = b''
+    while b'\n' not in buf: buf += s.recv(65536)
+    d = json.loads(buf.split(b'\n',1)[0])
+    assert d['ok']
+    print(len(d['terminals']))
+except Exception as e:
+    print(f'ERROR:{e}')
+finally: s.close()
+" 2>/dev/null)
+if echo "$COUNT" | grep -q "^[0-9]"; then
   passed "listed $COUNT terminal(s)"
 else
-  failed "list command failed"
+  failed "list command failed: $COUNT"
 fi
 
 # Test 3: Python client
