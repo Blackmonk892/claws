@@ -19,7 +19,7 @@ function run() {
         return reject(err);
       }
 
-      files.forEach((file) => mocha.addFile(path.resolve(file)));
+      files.slice().sort().forEach((file) => mocha.addFile(path.resolve(file)));
 
       try {
         mocha.run((failures) => {
