@@ -167,6 +167,13 @@ fi
 # ─── Step 6: Global Claude Code context injection ──────────────────────────
 echo "[6/8] Injecting Claws into Claude Code globally..."
 
+# Copy default behavior rule — changes Claude's terminal behavior
+mkdir -p "$HOME/.claude/rules"
+if [ -f "$INSTALL_DIR/rules/claws-default-behavior.md" ]; then
+  cp "$INSTALL_DIR/rules/claws-default-behavior.md" "$HOME/.claude/rules/" 2>/dev/null
+  echo "  ✓ Default behavior rule installed — Claude now prefers Claws terminals"
+fi
+
 # Copy orchestration engine skill
 mkdir -p "$HOME/.claude/skills"
 if [ -d "$INSTALL_DIR/.claude/skills/claws-orchestration-engine" ]; then
