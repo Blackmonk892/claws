@@ -168,14 +168,20 @@
   </div>
 </nav>
 
+<!-- Hero Banner -->
+<div style="padding-top: 60px;">
+  <img src="https://raw.githubusercontent.com/neunaha/claws/main/docs/images/hero-cinematic.png" alt="Claws — Terminal Orchestration" style="width: 100%; display: block;">
+</div>
+
 <!-- Hero -->
-<div class="hero">
+<div class="hero" style="padding-top: 40px;">
   <img class="logo-img" src="https://raw.githubusercontent.com/neunaha/claws/main/extension/icon.png" alt="Claws">
-  <h1>Control any <span>terminal</span> from the outside.</h1>
-  <p class="sub">A VS Code extension that turns every integrated terminal into a programmable endpoint. JSON socket protocol. Zero dependencies. Built for AI pair programming.</p>
+  <h1>One socket. Every <span>terminal</span>. Total control.</h1>
+  <p class="sub">Your AI writes code in one terminal. Runs tests in another. Deploys in a third. Monitors all of them. Reacts when things break. You just watch.</p>
   <div class="buttons">
-    <a href="https://github.com/neunaha/claws#install" class="btn btn-primary">Install in 30 seconds</a>
-    <a href="https://github.com/neunaha/claws" class="btn btn-ghost">View on GitHub</a>
+    <a href="https://github.com/neunaha/claws#install" class="btn btn-primary">Clone and install in 30 seconds</a>
+    <a href="https://github.com/neunaha/claws" class="btn btn-ghost">Star on GitHub</a>
+    <a href="https://github.com/neunaha/claws/blob/main/docs/guide.md" class="btn btn-ghost">Read the full guide</a>
   </div>
   <div class="badge-row">
     <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT">
@@ -244,6 +250,7 @@ client.close(worker.id)</pre>
         <div class="icon">&#128274;</div>
         <h3>Safety Gate</h3>
         <p>Detects when a terminal runs a TUI (vim, claude, less). Warns before sending text that would land as TUI input. Non-blocking by default; strict mode available.</p>
+        <img src="https://raw.githubusercontent.com/neunaha/claws/main/docs/images/safety-gate.png" alt="Safety Gate Flow" style="width:100%; border-radius:8px; margin-top:12px; border: 1px solid var(--border);">
       </div>
       <div class="feature-card">
         <div class="icon">&#128203;</div>
@@ -278,6 +285,7 @@ client.close(worker.id)</pre>
       <tr><td><code>close</code></td><td><code>{id}</code></td><td>Terminal disposed</td></tr>
     </tbody>
   </table>
+  <img class="img-full" src="https://raw.githubusercontent.com/neunaha/claws/main/docs/images/protocol-flow.png" alt="Protocol Request/Response Flow">
   <p><a href="https://github.com/neunaha/claws/blob/main/docs/protocol.md">Full protocol specification &rarr;</a></p>
 </section>
 
