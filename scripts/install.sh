@@ -60,6 +60,44 @@ echo "  ║                                           ║"
 echo "  ╚═══════════════════════════════════════════╝"
 echo ""
 
+# ─── Pre-flight: check dependencies ─────────────────────────────────────────
+echo "Checking dependencies..."
+
+# Git is required
+if ! command -v git &>/dev/null; then
+  echo "  ✗ git not found. Install:"
+  echo "    macOS:  xcode-select --install"
+  echo "    Linux:  sudo apt install git  OR  sudo yum install git"
+  exit 1
+fi
+echo "  ✓ git"
+
+# Python 3 — required for client + MCP server + shell commands
+PYTHON_CMD=""
+if command -v python3 &>/dev/null; then
+  PYTHON_CMD="python3"
+elif command -v python &>/dev/null && python --version 2>&1 | grep -q "Python 3"; then
+  PYTHON_CMD="python"
+fi
+
+if [ -z "$PYTHON_CMD" ]; then
+  echo ""
+  echo "  ✗ Python 3 not found."
+  echo ""
+  echo "  Claws needs Python 3 for the client library, MCP server, and shell commands."
+  echo ""
+  echo "  Install Python 3:"
+  echo "    macOS:   brew install python3"
+  echo "             OR download from https://www.python.org/downloads/"
+  echo "    Ubuntu:  sudo apt install python3"
+  echo "    Fedora:  sudo dnf install python3"
+  echo ""
+  echo "  After installing Python, re-run this script."
+  exit 1
+fi
+echo "  ✓ $PYTHON_CMD ($($PYTHON_CMD --version 2>&1))"
+echo ""
+
 # ─── Step 1: Clone or update ────────────────────────────────────────────────
 if [ -d "$INSTALL_DIR" ]; then
   echo "[1/8] Updating existing install..."
@@ -93,24 +131,17 @@ echo "  ✓ Scripts executable"
 # ─── Step 4: Python client ──────────────────────────────────────────────────
 if [ "${CLAWS_SKIP_PIP:-}" != "1" ]; then
   echo "[4/8] Installing Python client..."
-  PIP_CMD=""
-  if command -v pip3 &>/dev/null; then PIP_CMD="pip3"
-  elif command -v pip &>/dev/null; then PIP_CMD="pip"
-  fi
-
-  if [ -n "$PIP_CMD" ]; then
-    if [ "${CLAWS_SUDO:-}" = "1" ]; then
-      sudo $PIP_CMD install -e clients/python --quiet 2>/dev/null && echo "  ✓ Python client installed (sudo)" || echo "  ! pip install failed with sudo"
-    else
-      # Try user install first, then system, then sudo
-      $PIP_CMD install -e clients/python --quiet 2>/dev/null \
-        || $PIP_CMD install -e clients/python --user --quiet 2>/dev/null \
-        || sudo $PIP_CMD install -e clients/python --quiet 2>/dev/null \
-        || echo "  ! pip install failed — try: sudo pip3 install -e $INSTALL_DIR/clients/python"
-      echo "  ✓ Python client installed"
-    fi
+  # Use the detected Python command's pip module to avoid brew path issues
+  if $PYTHON_CMD -m pip install -e clients/python --quiet --break-system-packages 2>/dev/null; then
+    echo "  ✓ Python client installed"
+  elif $PYTHON_CMD -m pip install -e clients/python --user --quiet 2>/dev/null; then
+    echo "  ✓ Python client installed (user)"
+  elif $PYTHON_CMD -m pip install -e clients/python --quiet 2>/dev/null; then
+    echo "  ✓ Python client installed"
   else
-    echo "  (skipped — pip not found)"
+    # Fallback: just make sure the module is importable by adding to sys.path
+    echo "  ! pip install failed — using sys.path fallback"
+    echo "  The client will work via: PYTHONPATH=$INSTALL_DIR/clients/python python3 -c 'from claws import ClawsClient'"
   fi
 else
   echo "[4/8] Skipping Python client (CLAWS_SKIP_PIP=1)"
