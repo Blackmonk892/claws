@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "claws-client"
+version = "0.1.0"
+description = "Python client for the Claws VS Code extension — terminal control bridge"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [{name = "Anish Neunaha"}]
+keywords = ["vscode", "terminal", "automation", "ai", "orchestration"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries",
+]
+
+[project.urls]
+Homepage = "https://github.com/anishneunaha/claws"
+Repository = "https://github.com/anishneunaha/claws"
+Issues = "https://github.com/anishneunaha/claws/issues"

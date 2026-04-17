@@ -1,0 +1,105 @@
+{
+  "name": "claws",
+  "displayName": "Claws — Terminal Control Bridge",
+  "description": "Turn every VS Code terminal into a programmable endpoint. List, create, send, execute, read, and close terminals from any external process via a local socket.",
+  "version": "0.1.0",
+  "publisher": "anishneunaha",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/anishneunaha/claws"
+  },
+  "bugs": {
+    "url": "https://github.com/anishneunaha/claws/issues"
+  },
+  "homepage": "https://github.com/anishneunaha/claws#readme",
+  "icon": "icon.png",
+  "engines": {
+    "vscode": "^1.93.0"
+  },
+  "galleryBanner": {
+    "color": "#0A0A0B",
+    "theme": "dark"
+  },
+  "categories": [
+    "Other",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "terminal",
+    "automation",
+    "orchestration",
+    "ai",
+    "pair-programming",
+    "remote-control",
+    "bridge",
+    "socket",
+    "claude-code"
+  ],
+  "main": "./src/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "claws.status",
+        "title": "Claws: Show Status"
+      },
+      {
+        "command": "claws.listTerminals",
+        "title": "Claws: List Terminals"
+      }
+    ],
+    "terminal": {
+      "profiles": [
+        {
+          "id": "claws.wrappedTerminal",
+          "title": "Claws Wrapped Terminal",
+          "icon": "terminal-bash"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Claws",
+      "properties": {
+        "claws.socketPath": {
+          "type": "string",
+          "default": ".claws/claws.sock",
+          "description": "Relative path (from workspace root) for the Unix socket. Default: .claws/claws.sock"
+        },
+        "claws.logDirectory": {
+          "type": "string",
+          "default": ".claws/terminals",
+          "description": "Relative path for wrapped terminal pty logs. Default: .claws/terminals"
+        },
+        "claws.defaultWrapped": {
+          "type": "boolean",
+          "default": false,
+          "description": "Create all new terminals as wrapped (with pty logging) by default."
+        },
+        "claws.maxOutputBytes": {
+          "type": "number",
+          "default": 262144,
+          "description": "Maximum bytes of output buffered per command event (256KB default)."
+        },
+        "claws.maxHistory": {
+          "type": "number",
+          "default": 500,
+          "description": "Maximum command events retained in the ring buffer."
+        },
+        "claws.enableWebSocket": {
+          "type": "boolean",
+          "default": false,
+          "description": "[Planned] Enable WebSocket server for cross-device access."
+        },
+        "claws.webSocketPort": {
+          "type": "number",
+          "default": 9876,
+          "description": "[Planned] Port for the WebSocket server."
+        }
+      }
+    }
+  },
+  "private": false
+}

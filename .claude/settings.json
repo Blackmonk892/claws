@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.store.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Read",
+      "Write",
+      "Edit",
+      "MultiEdit",
+      "Bash",
+      "Glob",
+      "Grep"
+    ]
+  }
+}

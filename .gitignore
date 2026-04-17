@@ -1,0 +1,13 @@
+node_modules/
+*.vsix
+out/
+dist/
+.vscode-test/
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+*.log
+.DS_Store
+.claws/
+*.sock
