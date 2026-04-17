@@ -3,9 +3,11 @@ const Mocha = require('mocha');
 const glob = require('glob');
 
 function run() {
+  const timeout = Number(process.env.MOCHA_TIMEOUT) || 10000;
   const mocha = new Mocha({
     ui: 'tdd',
     color: true,
+    timeout,
   });
 
   const testsRoot = path.resolve(__dirname, '..');
