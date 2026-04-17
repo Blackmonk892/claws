@@ -37,6 +37,9 @@
     "claude-code"
   ],
   "main": "./src/extension.js",
+  "scripts": {
+    "test": "node ./test/runTest.js"
+  },
   "activationEvents": [
     "onStartupFinished"
   ],
@@ -101,5 +104,14 @@
       }
     }
   },
-  "private": false
+  "private": false,
+  "devDependencies": {
+    "@vscode/test-electron": "^2.5.2",
+    "glob": "^13.0.6",
+    "mocha": "^11.7.5"
+  },
+  "overrides": {
+    "diff": "8.0.3",
+    "serialize-javascript": "7.0.5"
+  }
 }
