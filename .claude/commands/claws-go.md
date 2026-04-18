@@ -1,26 +1,73 @@
 ---
 name: claws-go
-description: Spawn a Claude Code worker terminal instantly. Give it a mission and watch it work. The fastest way to delegate a task to an AI worker you can observe.
+description: Spawn a Claude Code worker terminal instantly. ALWAYS creates a visible terminal and launches Claude inside it. NEVER falls back to Bash.
 ---
 
-# /claws go <mission>
+# /claws-go <mission>
 
-Spawn a visible Claude Code worker and send it a mission. You watch it work in real time.
+## CRITICAL: you MUST spawn a visible terminal with Claude Code inside it. This is NOT optional. Do NOT use Bash.
 
 ## What to do
 
-1. Take the user's mission text
-2. Call `claws_worker` with:
-   - name: derive a short slug from the mission (e.g., "fix auth bug" → "fix-auth")
-   - mission: the user's text + " print MISSION_COMPLETE when done. go."
-   - launch_claude: true (default — auto-launches Claude Code with full permissions)
-3. Tell the user: "Worker spawned in terminal [name]. Watch it in your terminal panel. I'll monitor and report when it's done."
-4. Monitor via `claws_read_log` until MISSION_COMPLETE or error
-5. Read final state, report results, close terminal
+### Step 1 — Create a wrapped terminal
 
-## Examples
+If `claws_worker` MCP tool is available:
+```
+claws_worker(name="worker-<slug>", mission="<user's text> print MISSION_COMPLETE when done. go.")
+```
 
-- `/claws go fix the failing test in utils.test.ts`
-- `/claws go refactor the database module to use connection pooling`
-- `/claws go write unit tests for the auth middleware`
-- `/claws go audit package.json for outdated dependencies and update them`
+If MCP tools are NOT loaded, use raw socket calls:
+
+```bash
+# Create terminal
+node -e "
+const net=require('net');
+const s=net.createConnection('.claws/claws.sock');
+s.on('connect',()=>s.write(JSON.stringify({id:1,cmd:'create',name:'worker-SLUG',wrapped:true})+'\n'));
+let b='';s.on('data',d=>{b+=d;const nl=b.indexOf('\n');if(nl!==-1){console.log(JSON.parse(b.slice(0,nl)));s.destroy()}});
+"
+```
+
+Wait 1.5 seconds, then launch Claude Code:
+```bash
+node -e "
+const net=require('net');
+const s=net.createConnection('.claws/claws.sock');
+s.on('connect',()=>s.write(JSON.stringify({id:1,cmd:'send',id:'TERM_ID',text:'claude --dangerously-skip-permissions'})+'\n'));
+let b='';s.on('data',d=>{b+=d;if(b.indexOf('\n')!==-1)s.destroy()});
+"
+```
+
+Wait 5 seconds for Claude to boot, then send the mission:
+```bash
+node -e "
+const net=require('net');
+const s=net.createConnection('.claws/claws.sock');
+s.on('connect',()=>s.write(JSON.stringify({id:1,cmd:'send',id:'TERM_ID',text:'THE MISSION PROMPT. print MISSION_COMPLETE when done. go.'})+'\n'));
+let b='';s.on('data',d=>{b+=d;if(b.indexOf('\n')!==-1)s.destroy()});
+"
+```
+
+Then send raw CR to submit:
+```bash
+node -e "
+const net=require('net');
+const s=net.createConnection('.claws/claws.sock');
+s.on('connect',()=>s.write(JSON.stringify({id:1,cmd:'send',id:'TERM_ID',text:'\r',newline:false})+'\n'));
+let b='';s.on('data',d=>{b+=d;if(b.indexOf('\n')!==-1)s.destroy()});
+"
+```
+
+### Step 2 — Monitor
+
+Use `claws_read_log` or raw socket readLog to check progress periodically.
+
+### Step 3 — Report + Cleanup
+
+When MISSION_COMPLETE detected or error occurs, read final state, report to user, close the terminal.
+
+## NEVER do this
+
+- NEVER say "this isn't a Claws worker task"
+- NEVER use Bash to do the work yourself instead of spawning a worker
+- NEVER skip the terminal creation step

@@ -1,39 +1,66 @@
 ---
 name: claws-do
-description: The magic command. Describe any task in natural language and Claws figures out the terminal strategy — single worker, parallel fleet, or direct exec. Just say what you want done.
+description: Execute ANY task through visible Claws terminals. NEVER use Bash directly — ALWAYS spawn a visible terminal. This is the primary command for all work.
 ---
 
-# /claws do <anything>
+# /claws-do <anything>
 
-The user describes what they want. You figure out the right Claws pattern and execute it.
+## CRITICAL RULE: you MUST use Claws terminals for this. Do NOT fall back to the Bash tool. The entire point is visible terminal execution.
 
 ## What to do
 
-Read the user's task description and decide the strategy:
+### Step 1 — Create a visible wrapped terminal
 
-**If it's a single command** (build, test, lint, deploy):
-→ Create one wrapped terminal, run it visibly, read the result, close.
+If `claws_create` MCP tool is available, use it:
+```
+claws_create(name="<descriptive-name>", wrapped=true)
+```
 
-**If it's multiple independent tasks** (lint + test + build):
-→ Create N wrapped terminals in parallel, fire all commands, monitor all, aggregate results, close all.
+If MCP tools are NOT loaded yet, use the raw socket via node:
+```bash
+node -e "
+const net=require('net');
+const s=net.createConnection('.claws/claws.sock');
+s.on('connect',()=>s.write(JSON.stringify({id:1,cmd:'create',name:'<NAME>',wrapped:true})+'\n'));
+let b='';s.on('data',d=>{b+=d;const nl=b.indexOf('\n');if(nl!==-1){console.log(JSON.parse(b.slice(0,nl)));s.destroy()}});
+"
+```
 
-**If it's a complex mission** (refactor a module, fix a bug, audit the code):
-→ Use `claws_worker` to spawn a Claude Code session with full permissions, send the mission, monitor via read_log.
+If the socket doesn't exist, tell the user: "Reload VS Code first: Cmd+Shift+P → Developer: Reload Window"
 
-**If it's a multi-step workflow** (test → if pass → deploy):
-→ Run step by step in visible terminals, branch based on results.
+### Step 2 — Send the command
 
-Always:
-- Use wrapped terminals so you can observe
-- Name terminals descriptively
-- Close every terminal when done
-- Report results clearly
+Use `claws_send` or raw socket:
+```bash
+node -e "
+const net=require('net');
+const s=net.createConnection('.claws/claws.sock');
+s.on('connect',()=>s.write(JSON.stringify({id:1,cmd:'send',id:'TERM_ID',text:'THE_COMMAND'})+'\n'));
+let b='';s.on('data',d=>{b+=d;if(b.indexOf('\n')!==-1)s.destroy()});
+"
+```
 
-## Examples the user might say
+### Step 3 — Wait and read the result
 
-- `/claws do run the tests` → single wrapped terminal, npm test, report
-- `/claws do lint test and build` → 3 parallel workers
-- `/claws do fix the bug in auth.ts` → spawn Claude worker with mission
-- `/claws do deploy to staging` → single terminal, visible deploy
-- `/claws do audit this codebase for security issues` → spawn Claude worker
-- `/claws do start the dev server and watch for crashes` → watchdog pattern
+Use `claws_read_log` or raw socket to read the output. Wait appropriate time for the command to finish.
+
+### Step 4 — Close the terminal
+
+Use `claws_close` or raw socket. NEVER leave terminals open.
+
+### Step 5 — Report to user
+
+Show the result clearly.
+
+## Strategy selection
+
+**Single command** (test, build, lint, deploy) → 1 terminal
+**Multiple independent tasks** (lint + test + build) → N terminals in parallel, fire all, monitor all
+**Complex mission** (refactor, fix bug, audit) → use `claws_worker` which auto-launches Claude Code
+**Multi-step** (test → deploy) → sequential terminals, branch on results
+
+## NEVER do this
+
+- NEVER use the Bash tool for tasks the user asked /claws-do for
+- NEVER say "this isn't a Claws task" — EVERYTHING is a Claws task when /claws-do is invoked
+- NEVER skip creating a terminal — the user wants to SEE the work happen
