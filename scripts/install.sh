@@ -391,9 +391,27 @@ else
 fi
 
 # 2b. Read extension version from manifest so the symlink matches
-EXT_VERSION="0.5.0"
+# EXPECTED_MIN_VERSION is pinned at script-release time. If the clone
+# reports an older version, we know the working tree is stale — that was
+# the v0.5.1 bug where users saw "v0.4.0 — installed" because their
+# ~/.claws-src/ hadn't caught up with main.
+EXT_VERSION="0.5.2"
+EXPECTED_MIN_VERSION="0.5.2"
 if command -v node &>/dev/null && [ -f "$INSTALL_DIR/extension/package.json" ]; then
-  EXT_VERSION=$(node -e "try{console.log(require('$INSTALL_DIR/extension/package.json').version||'0.5.0')}catch(e){console.log('0.5.0')}" 2>/dev/null || echo "0.5.0")
+  EXT_VERSION=$(node -e "try{console.log(require('$INSTALL_DIR/extension/package.json').version||'$EXPECTED_MIN_VERSION')}catch(e){console.log('$EXPECTED_MIN_VERSION')}" 2>/dev/null || echo "$EXPECTED_MIN_VERSION")
+fi
+
+# Flag stale clones loudly so users don't silently run on an old version.
+if [ "$EXT_VERSION" != "$EXPECTED_MIN_VERSION" ]; then
+  if ! node -e "
+    const [a,b]=[process.argv[1],process.argv[2]].map(s=>s.split('.').map(Number));
+    for (let i=0;i<3;i++){ if((a[i]||0)<(b[i]||0)) process.exit(1); if((a[i]||0)>(b[i]||0)) process.exit(0); }
+    process.exit(0);
+  " "$EXT_VERSION" "$EXPECTED_MIN_VERSION" 2>/dev/null; then
+    warn "extension version $EXT_VERSION < expected $EXPECTED_MIN_VERSION"
+    info "your $INSTALL_DIR may be stale — git fetch may have failed silently"
+    info "recover: rm -rf $INSTALL_DIR && re-run this installer"
+  fi
 fi
 
 # 2c. Install the extension via SYMLINK into every detected editor.
