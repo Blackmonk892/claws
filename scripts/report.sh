@@ -90,15 +90,18 @@ if [ -f "$INSTALL_DIR/extension/package.json" ]; then
   say "Bundle:    $([ -f "$INSTALL_DIR/extension/dist/extension.js" ] && wc -c < "$INSTALL_DIR/extension/dist/extension.js" | tr -d ' ' || echo 'MISSING')"
   say "Build SHA: $(cat "$INSTALL_DIR/extension/dist/.build-sha" 2>/dev/null || echo 'unknown')"
 
-  # Detailed node-pty state: installed? binary built? what mode will
-  # wrapped terminals run in?
+  # Detailed node-pty state: installed? binary built? against which ABI?
+  # The Electron version matters — a binary built against system Node
+  # loads from `node` fine but fails inside VS Code's extension host.
   NPTY_DIR="$INSTALL_DIR/extension/node_modules/node-pty"
   NPTY_BIN="$NPTY_DIR/build/Release/pty.node"
+  NPTY_ABI=$(cat "$INSTALL_DIR/extension/dist/.electron-abi" 2>/dev/null || echo "unknown")
   if [ -f "$NPTY_BIN" ]; then
-    say "node-pty:  ✓ installed, native binary OK ($(wc -c < "$NPTY_BIN" | tr -d ' ') bytes) — Pseudoterminal mode active"
+    say "node-pty:  ✓ installed, binary present ($(wc -c < "$NPTY_BIN" | tr -d ' ') bytes)"
+    say "           built for Electron $NPTY_ABI"
   elif [ -d "$NPTY_DIR" ]; then
-    say "node-pty:  ✗ installed but BINARY MISSING — extension will fall back to pipe-mode (TUIs render poorly)"
-    say "           fix with: /claws-fix  (or  cd $INSTALL_DIR/extension/node_modules/node-pty && npx node-gyp rebuild)"
+    say "node-pty:  ✗ installed but BINARY MISSING — extension in pipe-mode fallback"
+    say "           fix with: /claws-fix"
   else
     say "node-pty:  ✗ not installed — pipe-mode fallback active"
   fi

@@ -84,24 +84,48 @@ else
   exit 1
 fi
 
-# ─── 1b. node-pty native binary ────────────────────────────────────────────
-# This is the #1 cause of "wrapped terminals are broken" for users on
-# recent Node versions. node-pty@1.1.0 silently skips source-builds when
-# no prebuild matches, leaving the extension in pipe-mode fallback.
+# ─── 1b. node-pty native binary (ABI-correct for VS Code's Electron) ──────
+# node-pty MUST be compiled against VS Code's Electron-embedded Node, not
+# system Node. A binary built with plain `node-gyp rebuild` against system
+# Node 24 silently fails to load in Electron 39 (Node 22) and the extension
+# falls back to pipe-mode. Use @electron/rebuild to target the correct ABI.
 check "node-pty native binary (for glitch-free wrapped terminals)"
 NPTY_BIN="$INSTALL_DIR/extension/node_modules/node-pty/build/Release/pty.node"
-if [ -f "$NPTY_BIN" ]; then
-  ok "node-pty binary present ($(wc -c < "$NPTY_BIN" | tr -d ' ') bytes)"
+ELECTRON_ABI_FILE="$INSTALL_DIR/extension/dist/.electron-abi"
+ELECTRON_VERSION=""
+if [ "$(uname)" = "Darwin" ]; then
+  for app in \
+    "/Applications/Visual Studio Code.app" \
+    "/Applications/Visual Studio Code - Insiders.app" \
+    "/Applications/Cursor.app" \
+    "/Applications/Windsurf.app"; do
+    plist="$app/Contents/Frameworks/Electron Framework.framework/Resources/Info.plist"
+    if [ -f "$plist" ]; then
+      v=$(plutil -extract CFBundleVersion raw "$plist" 2>/dev/null || true)
+      [ -n "$v" ] && ELECTRON_VERSION="$v" && break
+    fi
+  done
+fi
+[ -z "$ELECTRON_VERSION" ] && ELECTRON_VERSION="39.8.5"
+LAST_ABI=$(cat "$ELECTRON_ABI_FILE" 2>/dev/null || echo "")
+
+if [ -f "$NPTY_BIN" ] && [ "$LAST_ABI" = "$ELECTRON_VERSION" ]; then
+  ok "node-pty binary OK for Electron $ELECTRON_VERSION ($(wc -c < "$NPTY_BIN" | tr -d ' ') bytes)"
 elif [ -d "$INSTALL_DIR/extension/node_modules/node-pty" ]; then
-  fix "node-pty installed but binary missing — compiling from source"
+  if [ -f "$NPTY_BIN" ] && [ "$LAST_ABI" != "$ELECTRON_VERSION" ]; then
+    fix "node-pty built for Electron '$LAST_ABI', need '$ELECTRON_VERSION' — rebuilding"
+  else
+    fix "node-pty binary missing — rebuilding for Electron $ELECTRON_VERSION"
+  fi
   if [ "$(uname)" = "Darwin" ] && ! xcode-select -p &>/dev/null; then
     fail "Xcode Command Line Tools required — run: xcode-select --install"
     ISSUES=$((ISSUES+1))
-  elif ( cd "$INSTALL_DIR/extension/node_modules/node-pty" && npx --yes node-gyp rebuild >/dev/null 2>&1 ) && [ -f "$NPTY_BIN" ]; then
-    ok "node-pty compiled ($(wc -c < "$NPTY_BIN" | tr -d ' ') bytes) — reload VS Code to pick it up"
+  elif ( cd "$INSTALL_DIR/extension" && npx --yes @electron/rebuild --version="$ELECTRON_VERSION" --which=node-pty --force >/dev/null 2>&1 ) && [ -f "$NPTY_BIN" ]; then
+    echo "$ELECTRON_VERSION" > "$ELECTRON_ABI_FILE" 2>/dev/null || true
+    ok "node-pty rebuilt for Electron $ELECTRON_VERSION — reload VS Code to pick it up"
     FIXED=$((FIXED+1))
   else
-    fail "node-gyp rebuild failed — wrapped terminals will use pipe-mode"
+    fail "@electron/rebuild failed — wrapped terminals will use pipe-mode"
     ISSUES=$((ISSUES+1))
   fi
 else
