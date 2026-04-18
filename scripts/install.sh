@@ -395,8 +395,8 @@ fi
 # reports an older version, we know the working tree is stale — that was
 # the v0.5.1 bug where users saw "v0.4.0 — installed" because their
 # ~/.claws-src/ hadn't caught up with main.
-EXT_VERSION="0.5.3"
-EXPECTED_MIN_VERSION="0.5.3"
+EXT_VERSION="0.5.4"
+EXPECTED_MIN_VERSION="0.5.4"
 if command -v node &>/dev/null && [ -f "$INSTALL_DIR/extension/package.json" ]; then
   EXT_VERSION=$(node -e "try{console.log(require('$INSTALL_DIR/extension/package.json').version||'$EXPECTED_MIN_VERSION')}catch(e){console.log('$EXPECTED_MIN_VERSION')}" 2>/dev/null || echo "$EXPECTED_MIN_VERSION")
 fi
@@ -841,10 +841,21 @@ HOOK_MARKER="# CLAWS terminal hook"
 inject_hook() {
   local rcfile="$1"
   touch "$rcfile" 2>/dev/null || true
+  local had_stale=0
   if grep -q "CLAWS terminal hook" "$rcfile" 2>/dev/null; then
-    ok "already in $(basename "$rcfile")"
+    if ! grep -Fq "$HOOK_SOURCE" "$rcfile" 2>/dev/null; then
+      had_stale=1
+    fi
+    sed -i.claws-bak '/# CLAWS terminal hook/,+1d' "$rcfile" 2>/dev/null && rm -f "$rcfile.claws-bak" 2>/dev/null
+  fi
+  if printf "\n%s\n%s\n" "$HOOK_MARKER" "$HOOK_SOURCE" >> "$rcfile" 2>/dev/null; then
+    if [ "$had_stale" = "1" ]; then
+      ok "refreshed in $(basename "$rcfile") (removed stale path)"
+    else
+      ok "added to $(basename "$rcfile")"
+    fi
   else
-    printf "\n%s\n%s\n" "$HOOK_MARKER" "$HOOK_SOURCE" >> "$rcfile" && ok "added to $(basename "$rcfile")" || warn "could not write to $rcfile"
+    warn "could not write to $rcfile"
   fi
 }
 
@@ -854,15 +865,13 @@ inject_hook "$HOME/.bashrc"
 
 if [ -d "$HOME/.config/fish" ]; then
   FISH_CONF="$HOME/.config/fish/conf.d/claws.fish"
-  if [ ! -f "$FISH_CONF" ]; then
-    mkdir -p "$HOME/.config/fish/conf.d" 2>/dev/null
-    {
-      echo "# CLAWS terminal hook"
-      echo "if status is-interactive"
-      echo "  source $INSTALL_DIR/scripts/shell-hook.sh"
-      echo "end"
-    } > "$FISH_CONF" && ok "added to fish" || warn "could not write fish config"
-  fi
+  mkdir -p "$HOME/.config/fish/conf.d" 2>/dev/null
+  {
+    echo "# CLAWS terminal hook"
+    echo "if status is-interactive"
+    echo "  source $INSTALL_DIR/scripts/shell-hook.sh"
+    echo "end"
+  } > "$FISH_CONF" && ok "wrote fish conf" || warn "could not write fish config"
 fi
 
 # ─── Step 8: Verify ────────────────────────────────────────────────────────

@@ -38,12 +38,14 @@ Update complete. **Two things to activate:**
 1. **Reload VS Code** — `Cmd+Shift+P → Developer: Reload Window`
 2. **Restart Claude Code in this project** — exit this Claude session and re-open `claude` from the project root so the new project-local `.mcp.json` is picked up.
 
-**v0.5.0 — what's new after this update:**
+**v0.5.4 — what's new after this update:**
+- **Shell hook self-heals.** The installer now strips any stale `# CLAWS terminal hook` line from `.zshrc` / `.bashrc` / `.bash_profile` before adding the fresh one. Fixes `source: no such file or directory` errors from earlier installs that pointed at different `INSTALL_DIR` paths.
+- Fish config (`~/.config/fish/conf.d/claws.fish`) is overwritten on every install instead of being skipped when present — same stale-path protection.
 - Status bar item on the right showing `$(terminal) Claws (N)`; click it to run Health Check.
-- Seven palette commands under `Claws:` — Show Status, Refresh Status Bar, List Terminals (now a QuickPick), Health Check, Show Log, Rebuild Native PTY, Uninstall Cleanup.
+- Seven palette commands under `Claws:` — Show Status, Refresh Status Bar, List Terminals (QuickPick), Health Check, Show Log, Rebuild Native PTY, Uninstall Cleanup.
 - Chord keybindings: `cmd/ctrl+alt+c h` (Health Check), `cmd/ctrl+alt+c l` (Show Log), `cmd/ctrl+alt+c s` (Show Status).
-- New `/claws-introspect` slash command — one-shot runtime snapshot from the socket.
-- Protocol bumped to `claws/1` with explicit `rid` correlation + client-version drift warnings.
+- `/claws-introspect` — one-shot runtime snapshot from the socket.
+- Protocol `claws/1` with explicit `rid` correlation + client-version drift warnings.
 - Bundled `node-pty` under `extension/native/` — no more global install needed.
 
 If anything looks off:
