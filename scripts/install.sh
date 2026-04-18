@@ -179,6 +179,33 @@ if command -v npm &>/dev/null && [ -f "$INSTALL_DIR/extension/package.json" ]; t
       echo "$CURRENT_SHA" > "$BUILD_SHA_FILE" 2>/dev/null || true
       BUILD_OK=1
       ok "extension built ($(wc -c < "$BUNDLE" | tr -d ' ') bytes, SHA ${CURRENT_SHA:0:7})"
+
+      # Post-install: verify node-pty's native binary actually got built.
+      # node-pty@1.1.0's prebuild script exits 0 silently when no prebuild
+      # matches the current Node version (common on Node 24+ since prebuilt
+      # binaries lag new Node releases by weeks/months). When that happens
+      # the `|| node-gyp rebuild` fallback in its install script doesn't
+      # fire, the `.node` binary is missing, and the extension silently
+      # falls back to pipe-mode at runtime — rendering all TUIs (claude,
+      # vim, htop) as garbage. This is the single biggest reason installs
+      # look "fine" but wrapped terminals are broken.
+      NPTY_BIN="$INSTALL_DIR/extension/node_modules/node-pty/build/Release/pty.node"
+      if [ -d "$INSTALL_DIR/extension/node_modules/node-pty" ] && [ ! -f "$NPTY_BIN" ]; then
+        warn "node-pty binary missing — prebuild didn't match Node $(node --version). Compiling from source..."
+        if ! xcode-select -p &>/dev/null && [ "$(uname)" = "Darwin" ]; then
+          warn "Xcode Command Line Tools not installed — wrapped terminals will fall back to pipe-mode."
+          info "Install CLT and re-run /claws-fix: xcode-select --install"
+        elif ( cd "$INSTALL_DIR/extension/node_modules/node-pty" && npx --yes node-gyp rebuild >/dev/null 2>&1 ); then
+          if [ -f "$NPTY_BIN" ]; then
+            ok "node-pty compiled from source ($(wc -c < "$NPTY_BIN" | tr -d ' ') bytes)"
+          else
+            warn "node-gyp reported success but binary still missing — wrapped terminals will use pipe-mode"
+          fi
+        else
+          warn "node-gyp rebuild failed — wrapped terminals will fall back to pipe-mode."
+          info "TUI rendering (claude, vim, htop) will be degraded. See $CLAWS_LOG for build errors."
+        fi
+      fi
     else
       warn "extension build failed — see $CLAWS_LOG for details. Falling back to legacy JS."
       node --no-deprecation -e "const fs=require('fs'),p='$INSTALL_DIR/extension/package.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));j.main='./src/extension.js';fs.writeFileSync(p,JSON.stringify(j,null,2));" 2>/dev/null || true

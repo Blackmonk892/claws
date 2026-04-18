@@ -54,7 +54,20 @@ if [ -f "$INSTALL_DIR/extension/package.json" ]; then
   say "Version:   $(node -e "console.log(require('$INSTALL_DIR/extension/package.json').version)" 2>/dev/null)"
   say "Main:      $(node -e "console.log(require('$INSTALL_DIR/extension/package.json').main)" 2>/dev/null)"
   say "Bundle:    $([ -f "$INSTALL_DIR/extension/dist/extension.js" ] && wc -c < "$INSTALL_DIR/extension/dist/extension.js" | tr -d ' ' || echo 'MISSING')"
-  say "node-pty:  $([ -d "$INSTALL_DIR/extension/node_modules/node-pty" ] && echo 'installed' || echo 'not installed / fallback mode')"
+  say "Build SHA: $(cat "$INSTALL_DIR/extension/dist/.build-sha" 2>/dev/null || echo 'unknown')"
+
+  # Detailed node-pty state: installed? binary built? what mode will
+  # wrapped terminals run in?
+  NPTY_DIR="$INSTALL_DIR/extension/node_modules/node-pty"
+  NPTY_BIN="$NPTY_DIR/build/Release/pty.node"
+  if [ -f "$NPTY_BIN" ]; then
+    say "node-pty:  ✓ installed, native binary OK ($(wc -c < "$NPTY_BIN" | tr -d ' ') bytes) — Pseudoterminal mode active"
+  elif [ -d "$NPTY_DIR" ]; then
+    say "node-pty:  ✗ installed but BINARY MISSING — extension will fall back to pipe-mode (TUIs render poorly)"
+    say "           fix with: /claws-fix  (or  cd $INSTALL_DIR/extension/node_modules/node-pty && npx node-gyp rebuild)"
+  else
+    say "node-pty:  ✗ not installed — pipe-mode fallback active"
+  fi
 else
   say "MISSING manifest at $INSTALL_DIR/extension/package.json"
 fi

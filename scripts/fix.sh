@@ -40,6 +40,30 @@ else
   exit 1
 fi
 
+# ─── 1b. node-pty native binary ────────────────────────────────────────────
+# This is the #1 cause of "wrapped terminals are broken" for users on
+# recent Node versions. node-pty@1.1.0 silently skips source-builds when
+# no prebuild matches, leaving the extension in pipe-mode fallback.
+check "node-pty native binary (for glitch-free wrapped terminals)"
+NPTY_BIN="$INSTALL_DIR/extension/node_modules/node-pty/build/Release/pty.node"
+if [ -f "$NPTY_BIN" ]; then
+  ok "node-pty binary present ($(wc -c < "$NPTY_BIN" | tr -d ' ') bytes)"
+elif [ -d "$INSTALL_DIR/extension/node_modules/node-pty" ]; then
+  fix "node-pty installed but binary missing — compiling from source"
+  if [ "$(uname)" = "Darwin" ] && ! xcode-select -p &>/dev/null; then
+    fail "Xcode Command Line Tools required — run: xcode-select --install"
+    ISSUES=$((ISSUES+1))
+  elif ( cd "$INSTALL_DIR/extension/node_modules/node-pty" && npx --yes node-gyp rebuild >/dev/null 2>&1 ) && [ -f "$NPTY_BIN" ]; then
+    ok "node-pty compiled ($(wc -c < "$NPTY_BIN" | tr -d ' ') bytes) — reload VS Code to pick it up"
+    FIXED=$((FIXED+1))
+  else
+    fail "node-gyp rebuild failed — wrapped terminals will use pipe-mode"
+    ISSUES=$((ISSUES+1))
+  fi
+else
+  info "node-pty not installed — extension bundle may be missing too (see check 2)"
+fi
+
 # ─── 2. Extension bundle ───────────────────────────────────────────────────
 check "Extension bundle"
 if [ -f "$INSTALL_DIR/extension/dist/extension.js" ]; then
