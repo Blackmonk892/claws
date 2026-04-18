@@ -1,15 +1,25 @@
 #!/usr/bin/env bash
 # Claws — update runner
-# Called by /claws-update AFTER the source has been git-pulled. Owning all
-# update logic here means new steps can be added without the user having to
-# re-install the slash-command markdown in every project — a fresh git pull
-# updates this script and the next run picks it up.
 #
-# Usage: bash ~/.claws-src/scripts/update.sh [project-root]
+# Self-contained. Works two ways:
+#
+#   # 1. Via curl URL (no prior clone needed if ~/.claws-src is already there):
+#   bash <(curl -fsSL https://raw.githubusercontent.com/neunaha/claws/main/scripts/update.sh)
+#
+#   # 2. From the local clone:
+#   bash ~/.claws-src/scripts/update.sh
+#
+# The /claws-update slash command is a thin wrapper around option 2.
+#
+# New update steps get added to this script and users pick them up on their
+# next update — no per-project re-install of the slash-command markdown.
+#
+# Usage: bash update.sh [project-root]  (defaults to current pwd)
 
 set -eo pipefail
 
 INSTALL_DIR="${CLAWS_DIR:-$HOME/.claws-src}"
+# PROJECT_PWD is set by the slash command; fall back to $1, then $PWD.
 PROJECT_ROOT="${1:-${PROJECT_PWD:-$(pwd)}}"
 
 # ─── Colors ────────────────────────────────────────────────────────────────
@@ -23,12 +33,25 @@ fi
 header() { printf "\n${C_BOLD}═════ %s ═════${C_RESET}\n" "$*"; }
 note()   { printf "  ${C_DIM}%s${C_RESET}\n" "$*"; }
 
-# ─── Sanity ────────────────────────────────────────────────────────────────
-if [ ! -d "$INSTALL_DIR" ]; then
-  echo "Claws source not found at $INSTALL_DIR" >&2
-  echo "Run the installer first: bash <(curl -fsSL https://raw.githubusercontent.com/neunaha/claws/main/scripts/install.sh)" >&2
-  exit 1
+# ─── Step 0: Ensure Claws source + pull latest ─────────────────────────────
+# Runs whether update.sh was invoked via curl URL or from the local clone —
+# this is the one action that can't be delegated to install.sh because
+# install.sh's logic assumes INSTALL_DIR is already up-to-date.
+if [ ! -d "$INSTALL_DIR/.git" ]; then
+  if [ -d "$INSTALL_DIR" ]; then
+    echo "Claws source at $INSTALL_DIR exists but is not a git clone." >&2
+    echo "Remove it or set CLAWS_DIR to a different path, then re-run." >&2
+    exit 1
+  fi
+  echo "Claws not yet installed — running the installer first."
+  bash <(curl -fsSL https://raw.githubusercontent.com/neunaha/claws/main/scripts/install.sh)
+  exit 0
 fi
+
+header "Pulling latest Claws source"
+( cd "$INSTALL_DIR" && git pull --ff-only --quiet origin main ) \
+  && note "git pull OK ($(cd "$INSTALL_DIR" && git log --oneline -1))" \
+  || note "git pull failed or no changes — continuing with existing tree"
 
 # ─── Step 1: Sync marketplace-facing docs ──────────────────────────────────
 # The extension's README and CHANGELOG mirror the repo root so the VSIX (and

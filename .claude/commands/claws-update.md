@@ -8,7 +8,13 @@ description: Update Claws to the latest version. Pulls the source, then delegate
 **Run from the project root.** This command is a thin dispatcher — all the real work lives in `~/.claws-src/scripts/update.sh`, which is refreshed by `git pull` on every run. That means when we add new update steps (migrations, cleanup, notifications), they activate automatically on the next update.
 
 ```bash
-PROJECT_PWD="$(pwd)" && cd ~/.claws-src && git pull --ff-only origin main && bash ~/.claws-src/scripts/update.sh "$PROJECT_PWD"
+bash ~/.claws-src/scripts/update.sh "$(pwd)"
+```
+
+Equivalent via curl URL (no local clone assumed):
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/neunaha/claws/main/scripts/update.sh)
 ```
 
 ONE bash call. Do NOT break into multiple steps. Do NOT interleave commentary. The script prints its own status; let it speak.
