@@ -137,26 +137,59 @@ fi
 step "Installing extension"
 
 # 2a. Build
+# Since Claws isn't on the VS Code Marketplace, the install script IS the
+# release mechanism. Every run must produce a bundle that reflects whatever
+# `extension/src/` is currently on main. Rebuild whenever:
+#   - the bundle is missing, OR
+#   - any `src/` file is newer than the bundle, OR
+#   - the current git HEAD doesn't match the SHA the bundle was built from,
+#     OR the user explicitly sets CLAWS_FORCE_BUILD=1.
+# Build is ~seconds on a primed node_modules — rebuilding conservatively is
+# cheaper than a stale bundle.
 BUILD_OK=0
+BUNDLE="$INSTALL_DIR/extension/dist/extension.js"
+BUILD_SHA_FILE="$INSTALL_DIR/extension/dist/.build-sha"
+CURRENT_SHA="$(cd "$INSTALL_DIR" && git rev-parse HEAD 2>/dev/null || echo 'nogit')"
+LAST_BUILD_SHA="$(cat "$BUILD_SHA_FILE" 2>/dev/null || echo '')"
+
+needs_build() {
+  [ "${CLAWS_FORCE_BUILD:-0}" = "1" ] && return 0
+  [ ! -f "$BUNDLE" ] && return 0
+  [ "$CURRENT_SHA" != "$LAST_BUILD_SHA" ] && return 0
+  # Any TS source newer than the bundle — catches local edits and any file
+  # changed by git pull, not just extension.ts.
+  if find "$INSTALL_DIR/extension/src" -type f \( -name '*.ts' -o -name '*.js' \) -newer "$BUNDLE" 2>/dev/null | grep -q .; then
+    return 0
+  fi
+  return 1
+}
+
 if command -v npm &>/dev/null && [ -f "$INSTALL_DIR/extension/package.json" ]; then
-  if [ ! -f "$INSTALL_DIR/extension/dist/extension.js" ] \
-     || [ "$INSTALL_DIR/extension/src/extension.ts" -nt "$INSTALL_DIR/extension/dist/extension.js" ]; then
-    info "building TypeScript bundle (first run or source changed)"
-    if ( cd "$INSTALL_DIR/extension" && npm install --no-audit --no-fund --loglevel=error --silent >/dev/null 2>&1 && npm run build --silent >/dev/null 2>&1 ); then
+  if needs_build; then
+    if [ "$CURRENT_SHA" = "$LAST_BUILD_SHA" ]; then
+      info "rebuilding extension bundle (source changed locally)"
+    elif [ -z "$LAST_BUILD_SHA" ]; then
+      info "building extension bundle (first run)"
+    else
+      info "rebuilding extension bundle (git HEAD changed: ${LAST_BUILD_SHA:0:7} → ${CURRENT_SHA:0:7})"
+    fi
+    # Let npm's own output flow through the log (tee'd earlier). `--silent`
+    # keeps stdout quiet on success, but real errors still print.
+    if ( cd "$INSTALL_DIR/extension" && npm install --no-audit --no-fund --loglevel=error --silent && npm run build --silent ); then
+      echo "$CURRENT_SHA" > "$BUILD_SHA_FILE" 2>/dev/null || true
       BUILD_OK=1
-      ok "extension built ($(wc -c < "$INSTALL_DIR/extension/dist/extension.js") bytes)"
+      ok "extension built ($(wc -c < "$BUNDLE" | tr -d ' ') bytes, SHA ${CURRENT_SHA:0:7})"
     else
       warn "extension build failed — see $CLAWS_LOG for details. Falling back to legacy JS."
-      # Repoint main to legacy JS so VS Code still loads something
-      node -e "const fs=require('fs'),p='$INSTALL_DIR/extension/package.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));j.main='./src/extension.js';fs.writeFileSync(p,JSON.stringify(j,null,2));" 2>/dev/null || true
+      node --no-deprecation -e "const fs=require('fs'),p='$INSTALL_DIR/extension/package.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));j.main='./src/extension.js';fs.writeFileSync(p,JSON.stringify(j,null,2));" 2>/dev/null || true
     fi
   else
     BUILD_OK=1
-    ok "extension bundle already up to date"
+    ok "extension bundle up to date (SHA ${CURRENT_SHA:0:7}, $(wc -c < "$BUNDLE" | tr -d ' ') bytes)"
   fi
 else
   warn "npm or extension/package.json missing — using legacy src/extension.js"
-  node -e "const fs=require('fs'),p='$INSTALL_DIR/extension/package.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));j.main='./src/extension.js';fs.writeFileSync(p,JSON.stringify(j,null,2));" 2>/dev/null || true
+  node --no-deprecation -e "const fs=require('fs'),p='$INSTALL_DIR/extension/package.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));j.main='./src/extension.js';fs.writeFileSync(p,JSON.stringify(j,null,2));" 2>/dev/null || true
 fi
 
 # 2b. Read extension version from manifest so the symlink matches
@@ -165,22 +198,93 @@ if command -v node &>/dev/null && [ -f "$INSTALL_DIR/extension/package.json" ]; 
   EXT_VERSION=$(node -e "try{console.log(require('$INSTALL_DIR/extension/package.json').version||'0.4.0')}catch(e){console.log('0.4.0')}" 2>/dev/null || echo "0.4.0")
 fi
 
-# 2c. Symlink into editor's extensions dir
-if [ -z "$EXT_DIR" ]; then
-  warn "no editor extensions dir (CLAWS_EDITOR=skip) — skipping symlink"
-  EXT_LINK=""
-else
+# 2c. Install the extension into every detected editor.
+#
+# This is the hero of the install: without it, nothing else matters. We
+# prefer the proper VSIX + `code --install-extension` flow because:
+#   - VS Code manages extensions.json itself (reliable activation)
+#   - Extension shows up in Extensions panel like any marketplace install
+#   - User can disable/uninstall via the UI
+#
+# If vsce packaging fails OR no editor CLI is found, we fall back to a
+# symlink into the first detected extensions dir — always-works fallback.
+
+EXT_LINK=""
+INSTALLED_EDITORS=()
+VSIX_PATH=""
+
+# Build a VSIX. `vsce package` downloads via npx on first run (~10s once,
+# cached after). If it fails we continue to symlink fallback.
+if [ "${BUILD_OK:-0}" = "1" ] && command -v npx &>/dev/null; then
+  VSIX_PATH="/tmp/claws-$EXT_VERSION.vsix"
+  info "packaging VSIX for VS Code install"
+  if ( cd "$INSTALL_DIR/extension" \
+       && npx --yes @vscode/vsce package --skip-license --no-git-tag-version --no-update-package-json --out "$VSIX_PATH" ) >/dev/null 2>&1; then
+    ok "packaged $VSIX_PATH ($(wc -c < "$VSIX_PATH" | tr -d ' ') bytes)"
+  else
+    warn "vsce package failed — will fall back to symlink install"
+    VSIX_PATH=""
+  fi
+fi
+
+# Find every editor CLI on the system. Accepts:
+#   - CLIs in PATH (most Linux installs, macOS when user ran "Shell Command:
+#     Install 'code' command in PATH")
+#   - macOS app-bundled CLIs at their canonical locations (works even when
+#     the user never ran the shell-command installer)
+detect_editor_clis() {
+  local out=()
+  for pair in \
+    "code:/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" \
+    "code-insiders:/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/bin/code-insiders" \
+    "cursor:/Applications/Cursor.app/Contents/Resources/app/bin/cursor" \
+    "windsurf:/Applications/Windsurf.app/Contents/Resources/app/bin/windsurf"; do
+    local label="${pair%%:*}"
+    local bundled="${pair#*:}"
+    local cli=""
+    if command -v "$label" &>/dev/null; then
+      cli="$(command -v "$label")"
+    elif [ -x "$bundled" ]; then
+      cli="$bundled"
+    fi
+    [ -n "$cli" ] && out+=("$label|$cli")
+  done
+  # Print one per line so the caller can loop.
+  printf '%s\n' "${out[@]}"
+}
+
+if [ -n "$VSIX_PATH" ]; then
+  while IFS='|' read -r label cli; do
+    [ -z "$label" ] && continue
+    info "installing into $label via $cli"
+    if "$cli" --install-extension "$VSIX_PATH" --force >/dev/null 2>&1; then
+      ok "Claws extension installed in $label"
+      INSTALLED_EDITORS+=("$label")
+    else
+      # One known failure: the extension is already loaded in a running
+      # window and VS Code refuses reinstall without restart. Still OK —
+      # next reload picks up the new bundle.
+      warn "$label refused install (likely a running window holds the old version — reload to activate)"
+    fi
+  done < <(detect_editor_clis)
+fi
+
+# Fallback symlink — always attempted, harmless if VSIX install also
+# succeeded (VS Code will prefer the official install).
+if [ "${#INSTALLED_EDITORS[@]}" -eq 0 ] && [ -n "$EXT_DIR" ]; then
   EXT_LINK="$EXT_DIR/neunaha.claws-$EXT_VERSION"
-  info "symlinking extension into $EXT_DIR (version $EXT_VERSION)"
-  # Remove any older-versioned symlinks so VS Code picks up the new one.
+  info "falling back to symlink: $EXT_LINK"
   rm -f "$EXT_DIR"/neunaha.claws-* 2>/dev/null || sudo rm -f "$EXT_DIR"/neunaha.claws-* 2>/dev/null || true
   if ln -sf "$INSTALL_DIR/extension" "$EXT_LINK" 2>/dev/null \
      || sudo ln -sf "$INSTALL_DIR/extension" "$EXT_LINK" 2>/dev/null; then
     ok "extension symlinked → $EXT_LINK"
+    INSTALLED_EDITORS+=("symlink")
   else
-    bad "could not symlink extension"
-    info "run manually: ln -s $INSTALL_DIR/extension $EXT_LINK"
+    bad "could not install extension — neither VSIX nor symlink worked"
+    info "run manually: code --install-extension $VSIX_PATH  (or: ln -s $INSTALL_DIR/extension $EXT_LINK)"
   fi
+elif [ -z "$EXT_DIR" ] && [ "${#INSTALLED_EDITORS[@]}" -eq 0 ]; then
+  warn "CLAWS_EDITOR=skip and no editor CLI detected — extension not installed"
 fi
 
 # ─── Step 3: Script permissions ────────────────────────────────────────────
@@ -224,8 +328,47 @@ cfg.mcpServers.claws = {
 fs.writeFileSync(p, JSON.stringify(cfg, null, 2) + '\n');
 " "$PROJECT_MCP"
     ok "wrote $PROJECT_MCP"
+
+    # Write/merge .vscode/extensions.json so VS Code prompts anyone who opens
+    # this project without Claws installed. Pins `neunaha.claws` as a
+    # workspace-recommended extension. Doesn't force-install — just shows
+    # the standard "this workspace recommends installing these extensions"
+    # prompt.
+    if [ "${CLAWS_SKIP_VSCODE_RECOMMEND:-0}" != "1" ]; then
+      VSCODE_DIR="$PROJECT_ROOT/.vscode"
+      VSCODE_EXT_JSON="$VSCODE_DIR/extensions.json"
+      mkdir -p "$VSCODE_DIR"
+      node --no-deprecation -e "
+const fs = require('fs');
+const p = process.argv[1];
+let cfg = {};
+let parseError = false;
+try {
+  const raw = fs.readFileSync(p, 'utf8');
+  // Strip JSONC line + block comments so existing commented files merge
+  // cleanly instead of being overwritten.
+  const stripped = raw.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  cfg = JSON.parse(stripped);
+} catch (e) {
+  if (fs.existsSync(p)) parseError = true;
+}
+if (parseError) {
+  console.log('existing extensions.json has non-standard syntax — leaving it untouched');
+  process.exit(0);
+}
+if (!Array.isArray(cfg.recommendations)) cfg.recommendations = [];
+if (!cfg.recommendations.includes('neunaha.claws')) {
+  cfg.recommendations.push('neunaha.claws');
+  fs.writeFileSync(p, JSON.stringify(cfg, null, 2) + '\n');
+  console.log('added neunaha.claws to workspace recommendations');
+} else {
+  console.log('neunaha.claws already in workspace recommendations');
+}
+" "$VSCODE_EXT_JSON" | sed 's/^/    /' || true
+      ok "wrote $VSCODE_EXT_JSON"
+    fi
   else
-    warn "no safe project dir — skipping project .mcp.json"
+    warn "no safe project dir — skipping project .mcp.json and .vscode/extensions.json"
   fi
 
   if [ "${CLAWS_GLOBAL_MCP:-0}" = "1" ]; then
@@ -360,7 +503,11 @@ CHECKS_FAIL=0
 _ok()   { ok "$*"; CHECKS_PASS=$((CHECKS_PASS+1)); }
 _miss() { bad "$*"; CHECKS_FAIL=$((CHECKS_FAIL+1)); }
 
-[ -n "$EXT_LINK" ] && [ -L "$EXT_LINK" ] && _ok "Extension symlink → $EXT_LINK" || _miss "Extension not symlinked"
+if [ "${#INSTALLED_EDITORS[@]}" -gt 0 ]; then
+  _ok "Extension installed in: ${INSTALLED_EDITORS[*]}"
+else
+  _miss "Extension not installed in any editor — run /claws-fix"
+fi
 [ -f "$INSTALL_DIR/extension/dist/extension.js" ] && _ok "Extension bundle built" || warn "Extension bundle missing — fallback to legacy JS active"
 [ -f "$MCP_PATH" ] && _ok "MCP server exists at $MCP_PATH" || _miss "$MCP_PATH missing"
 command -v node &>/dev/null && _ok "Node.js available ($(node --version))" || _miss "node not found"
@@ -368,6 +515,7 @@ command -v node &>/dev/null && _ok "Node.js available ($(node --version))" || _m
 if [ "$PROJECT_INSTALL" = "1" ]; then
   [ -f "$PROJECT_ROOT/.mcp.json" ] && _ok "Project .mcp.json" || _miss "project .mcp.json missing"
   [ -f "$PROJECT_ROOT/.claws-bin/mcp_server.js" ] && _ok "Project .claws-bin/mcp_server.js" || _miss "project mcp_server.js copy missing"
+  [ -f "$PROJECT_ROOT/.vscode/extensions.json" ] && grep -q "neunaha.claws" "$PROJECT_ROOT/.vscode/extensions.json" 2>/dev/null && _ok "Project .vscode/extensions.json recommends claws" || warn "project .vscode/extensions.json missing claws recommendation"
   [ -d "$PROJECT_ROOT/.claude/commands" ] && _ok "Project .claude/commands" || _miss "project commands missing"
   [ -d "$PROJECT_ROOT/.claude/skills" ] && _ok "Project .claude/skills" || _miss "project skills missing"
   [ -d "$PROJECT_ROOT/.claude/rules" ] && _ok "Project .claude/rules" || _miss "project rules missing"
@@ -425,7 +573,11 @@ else
   printf '  Project:     ${C_YELLOW}(none — re-run from your project root)${C_RESET}\n'
   printf '  MCP server:  %s\n' "$MCP_PATH"
 fi
-[ -n "$EXT_LINK" ] && printf '  Extension:   %s → %s\n' "$EXT_LINK" "$INSTALL_DIR/extension"
+if [ "${#INSTALLED_EDITORS[@]}" -gt 0 ]; then
+  printf '  Extension:   installed in %s\n' "${INSTALLED_EDITORS[*]}"
+else
+  printf '  Extension:   ${C_YELLOW}NOT INSTALLED — run /claws-fix${C_RESET}\n'
+fi
 printf '  Install log: %s\n' "$CLAWS_LOG"
 cat <<NEXT
 

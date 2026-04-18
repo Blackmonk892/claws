@@ -71,13 +71,21 @@ for dir in "$HOME/.vscode/extensions" "$HOME/.vscode-insiders/extensions" "$HOME
 done
 
 section "Project-local files"
-for f in .mcp.json .claws-bin/mcp_server.js .claws-bin/shell-hook.sh CLAUDE.md; do
+for f in .mcp.json .claws-bin/mcp_server.js .claws-bin/shell-hook.sh .vscode/extensions.json CLAUDE.md; do
   if [ -e "$PROJECT_ROOT/$f" ]; then
     say "  ✓ $f  ($(wc -c < "$PROJECT_ROOT/$f" | tr -d ' ') bytes)"
   else
     say "  ✗ $f  MISSING"
   fi
 done
+# Confirm neunaha.claws is in the recommendations list specifically
+if [ -f "$PROJECT_ROOT/.vscode/extensions.json" ]; then
+  if grep -q "neunaha.claws" "$PROJECT_ROOT/.vscode/extensions.json" 2>/dev/null; then
+    say "  ✓ .vscode/extensions.json recommends neunaha.claws"
+  else
+    say "  ✗ .vscode/extensions.json MISSING claws recommendation"
+  fi
+fi
 for d in .claude/commands .claude/rules .claude/skills; do
   if [ -d "$PROJECT_ROOT/$d" ]; then
     count=$(find "$PROJECT_ROOT/$d" -type f 2>/dev/null | wc -l | tr -d ' ')

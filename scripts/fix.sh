@@ -59,33 +59,67 @@ else
   ISSUES=$((ISSUES+1))
 fi
 
-# ─── 3. Editor extension symlink ───────────────────────────────────────────
-check "Editor extension symlink"
+# ─── 3. Extension installed in editors ─────────────────────────────────────
+check "Claws extension installed in VS Code / Cursor / etc"
 EXT_VERSION=$(node --no-deprecation -e "try{console.log(require('$INSTALL_DIR/extension/package.json').version)}catch(e){console.log('0.4.0')}" 2>/dev/null || echo "0.4.0")
-FOUND_LINK=""
+
+FOUND_INSTALLS=()
 for dir in "$HOME/.vscode/extensions" "$HOME/.vscode-insiders/extensions" "$HOME/.cursor/extensions" "$HOME/.windsurf/extensions"; do
-  if [ -d "$dir" ] && [ -L "$dir/neunaha.claws-$EXT_VERSION" ]; then
-    FOUND_LINK="$dir/neunaha.claws-$EXT_VERSION"
-    break
+  [ -d "$dir" ] || continue
+  # Any `neunaha.claws-*` directory or symlink counts as installed
+  if ls "$dir"/neunaha.claws-* &>/dev/null; then
+    FOUND_INSTALLS+=("$(basename "$dir"): $(ls -d "$dir"/neunaha.claws-* 2>/dev/null | head -1 | xargs basename)")
   fi
 done
-if [ -n "$FOUND_LINK" ]; then
-  ok "symlinked → $FOUND_LINK"
-else
-  # Find any editor dir and re-link
-  TARGET_DIR=""
-  for dir in "$HOME/.vscode/extensions" "$HOME/.vscode-insiders/extensions" "$HOME/.cursor/extensions" "$HOME/.windsurf/extensions"; do
-    [ -d "$dir" ] && TARGET_DIR="$dir" && break
+
+if [ "${#FOUND_INSTALLS[@]}" -gt 0 ]; then
+  for entry in "${FOUND_INSTALLS[@]}"; do
+    ok "installed → $entry"
   done
-  [ -z "$TARGET_DIR" ] && TARGET_DIR="$HOME/.vscode/extensions" && mkdir -p "$TARGET_DIR"
-  fix "no symlink found — creating $TARGET_DIR/neunaha.claws-$EXT_VERSION"
-  rm -f "$TARGET_DIR"/neunaha.claws-* 2>/dev/null || true
-  if ln -sf "$INSTALL_DIR/extension" "$TARGET_DIR/neunaha.claws-$EXT_VERSION" 2>/dev/null \
-     || sudo ln -sf "$INSTALL_DIR/extension" "$TARGET_DIR/neunaha.claws-$EXT_VERSION"; then
-    ok "symlinked"
-    FIXED=$((FIXED+1))
+else
+  fix "no Claws extension found in any editor — packaging VSIX and installing"
+  VSIX_PATH="/tmp/claws-$EXT_VERSION.vsix"
+  if command -v npx &>/dev/null && ( cd "$INSTALL_DIR/extension" && npx --yes @vscode/vsce package --skip-license --no-git-tag-version --no-update-package-json --out "$VSIX_PATH" >/dev/null 2>&1 ); then
+    # Try each editor CLI
+    INSTALLED=0
+    for pair in \
+      "code:/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" \
+      "code-insiders:/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/bin/code-insiders" \
+      "cursor:/Applications/Cursor.app/Contents/Resources/app/bin/cursor" \
+      "windsurf:/Applications/Windsurf.app/Contents/Resources/app/bin/windsurf"; do
+      label="${pair%%:*}"
+      bundled="${pair#*:}"
+      cli=""
+      if command -v "$label" &>/dev/null; then cli="$(command -v "$label")"
+      elif [ -x "$bundled" ]; then cli="$bundled"
+      else continue
+      fi
+      if "$cli" --install-extension "$VSIX_PATH" --force >/dev/null 2>&1; then
+        ok "installed into $label"
+        INSTALLED=$((INSTALLED+1))
+      fi
+    done
+    if [ "$INSTALLED" -gt 0 ]; then
+      FIXED=$((FIXED+1))
+    else
+      # Fall back to symlink
+      TARGET_DIR=""
+      for dir in "$HOME/.vscode/extensions" "$HOME/.vscode-insiders/extensions" "$HOME/.cursor/extensions" "$HOME/.windsurf/extensions"; do
+        [ -d "$dir" ] && TARGET_DIR="$dir" && break
+      done
+      [ -z "$TARGET_DIR" ] && TARGET_DIR="$HOME/.vscode/extensions" && mkdir -p "$TARGET_DIR"
+      rm -f "$TARGET_DIR"/neunaha.claws-* 2>/dev/null || true
+      if ln -sf "$INSTALL_DIR/extension" "$TARGET_DIR/neunaha.claws-$EXT_VERSION" 2>/dev/null \
+         || sudo ln -sf "$INSTALL_DIR/extension" "$TARGET_DIR/neunaha.claws-$EXT_VERSION" 2>/dev/null; then
+        ok "fallback symlink created at $TARGET_DIR/neunaha.claws-$EXT_VERSION"
+        FIXED=$((FIXED+1))
+      else
+        fail "could not install or symlink extension"
+        ISSUES=$((ISSUES+1))
+      fi
+    fi
   else
-    fail "could not create symlink"
+    fail "npx/vsce unavailable and no existing install found"
     ISSUES=$((ISSUES+1))
   fi
 fi
@@ -111,6 +145,29 @@ fs.writeFileSync(p, JSON.stringify(cfg, null, 2) + '\n');
 "
   ok "wrote $PROJECT_MCP"
   FIXED=$((FIXED+1))
+fi
+
+# ─── 4b. Project .vscode/extensions.json recommends claws ─────────────────
+check "Project .vscode/extensions.json recommends neunaha.claws"
+VSCODE_EXT_JSON="$PROJECT_ROOT/.vscode/extensions.json"
+if [ -f "$VSCODE_EXT_JSON" ] && grep -q "neunaha.claws" "$VSCODE_EXT_JSON" 2>/dev/null; then
+  ok "already recommended"
+else
+  fix "adding neunaha.claws to workspace recommendations"
+  mkdir -p "$PROJECT_ROOT/.vscode"
+  node --no-deprecation -e "
+const fs = require('fs');
+const p = process.argv[1];
+let cfg = {};
+try {
+  const raw = fs.readFileSync(p, 'utf8');
+  const stripped = raw.replace(/\/\/.*\$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  cfg = JSON.parse(stripped);
+} catch {}
+if (!Array.isArray(cfg.recommendations)) cfg.recommendations = [];
+if (!cfg.recommendations.includes('neunaha.claws')) cfg.recommendations.push('neunaha.claws');
+fs.writeFileSync(p, JSON.stringify(cfg, null, 2) + '\n');
+" "$VSCODE_EXT_JSON" 2>/dev/null && ok "wrote $VSCODE_EXT_JSON" && FIXED=$((FIXED+1)) || fail "could not write $VSCODE_EXT_JSON"
 fi
 
 # ─── 5. MCP server handshake ───────────────────────────────────────────────

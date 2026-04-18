@@ -83,7 +83,7 @@ Claws/
 ├── scripts/            # install.sh, shell-hook.sh, terminal-wrapper.sh, test-install.sh
 ├── mcp_server.js       # MCP server — installer copies into <project>/.claws-bin/
 ├── cli.js              # root CLI entry (package.json bin)
-├── clients/            # optional language clients (python/, node/)
+├── clients/            # optional language clients (python/ — node/ client is planned, not built yet)
 ├── .claude/            # installer copies these into each project
 │   ├── commands/       #   19 claws-* slash commands
 │   └── skills/         #   orchestration-engine, prompt-templates
