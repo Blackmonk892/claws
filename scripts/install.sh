@@ -391,9 +391,9 @@ else
 fi
 
 # 2b. Read extension version from manifest so the symlink matches
-EXT_VERSION="0.4.0"
+EXT_VERSION="0.5.0"
 if command -v node &>/dev/null && [ -f "$INSTALL_DIR/extension/package.json" ]; then
-  EXT_VERSION=$(node -e "try{console.log(require('$INSTALL_DIR/extension/package.json').version||'0.4.0')}catch(e){console.log('0.4.0')}" 2>/dev/null || echo "0.4.0")
+  EXT_VERSION=$(node -e "try{console.log(require('$INSTALL_DIR/extension/package.json').version||'0.5.0')}catch(e){console.log('0.5.0')}" 2>/dev/null || echo "0.5.0")
 fi
 
 # 2c. Install the extension via SYMLINK into every detected editor.

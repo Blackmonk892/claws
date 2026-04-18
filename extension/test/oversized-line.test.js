@@ -47,9 +47,18 @@ class TerminalProfile {
 const onOpen = new EventEmitter();
 const onClose = new EventEmitter();
 
+class MarkdownString {
+  constructor() { this.value = ''; this.isTrusted = false; }
+  appendMarkdown(s) { this.value += s; return this; }
+}
+class ThemeColor { constructor(id) { this.id = id; } }
+
 const vscode = {
   EventEmitter,
   TerminalProfile,
+  MarkdownString,
+  ThemeColor,
+  StatusBarAlignment: { Left: 1, Right: 2 },
   Uri: { file: (p) => ({ fsPath: p, scheme: 'file', path: p }) },
   workspace: {
     workspaceFolders: [{ uri: { fsPath: workspaceRoot } }],
@@ -65,6 +74,10 @@ const vscode = {
       show: () => {},
       dispose: () => {},
     }),
+    createStatusBarItem: (_align, _prio) => ({
+      text: '', tooltip: '', color: undefined, command: '', name: '',
+      show: () => {}, hide: () => {}, dispose: () => {},
+    }),
     createTerminal: (_opts) => ({
       name: 'mock',
       processId: Promise.resolve(12345),
@@ -76,9 +89,14 @@ const vscode = {
     onDidOpenTerminal: onOpen.event,
     onDidCloseTerminal: onClose.event,
     registerTerminalProfileProvider: (_id, _provider) => ({ dispose: () => {} }),
+    showErrorMessage: () => ({ then: (cb) => cb && cb(undefined) }),
+    showInformationMessage: () => ({ then: (cb) => cb && cb(undefined) }),
+    showWarningMessage: () => ({ then: (cb) => cb && cb(undefined) }),
+    showQuickPick: () => Promise.resolve(undefined),
   },
   commands: {
     registerCommand: (_name, _cb) => ({ dispose: () => {} }),
+    executeCommand: () => Promise.resolve(),
   },
 };
 
@@ -198,7 +216,7 @@ function check(name, fn) {
     check('subsequent clean request still succeeds', () => { throw e; });
   }
 
-  ext.deactivate();
+  await ext.deactivate();
   await new Promise((r) => setTimeout(r, 100));
 
   for (const a of assertions) {

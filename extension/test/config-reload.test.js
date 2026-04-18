@@ -55,9 +55,18 @@ const onClose = new EventEmitter();
 const onConfig = new EventEmitter();
 const onFolders = new EventEmitter();
 
+class MarkdownString {
+  constructor() { this.value = ''; this.isTrusted = false; }
+  appendMarkdown(s) { this.value += s; return this; }
+}
+class ThemeColor { constructor(id) { this.id = id; } }
+
 const vscode = {
   EventEmitter,
   TerminalProfile,
+  MarkdownString,
+  ThemeColor,
+  StatusBarAlignment: { Left: 1, Right: 2 },
   Uri: { file: (p) => ({ fsPath: p, scheme: 'file', path: p }) },
   workspace: {
     workspaceFolders: [{ uri: { fsPath: workspaceRoot } }],
@@ -75,6 +84,10 @@ const vscode = {
       show: () => {},
       dispose: () => {},
     }),
+    createStatusBarItem: (_align, _prio) => ({
+      text: '', tooltip: '', color: undefined, command: '', name: '',
+      show: () => {}, hide: () => {}, dispose: () => {},
+    }),
     createTerminal: (_opts) => ({
       name: 'mock',
       processId: Promise.resolve(12345),
@@ -88,6 +101,8 @@ const vscode = {
     registerTerminalProfileProvider: (_id, _provider) => ({ dispose: () => {} }),
     showErrorMessage: () => ({ then: () => {} }),
     showInformationMessage: () => ({ then: () => {} }),
+    showWarningMessage: () => ({ then: () => {} }),
+    showQuickPick: () => Promise.resolve(undefined),
   },
   commands: {
     registerCommand: (_name, _cb) => ({ dispose: () => {} }),
@@ -160,7 +175,8 @@ check('socketPath change produced reload-prompt log line', () => {
   if (!updated) throw new Error(`no socketPath log; new logs: ${JSON.stringify(logs.slice(logsBefore2))}`);
 });
 
-ext.deactivate();
+(async () => {
+  await ext.deactivate();
 
 for (const a of assertions) {
   console.log(`${a.ok ? '  ✓' : '  ✗'} ${a.name}${a.ok ? '' : ' — ' + a.err}`);
@@ -174,3 +190,4 @@ if (failed.length > 0) {
 }
 console.log(`\nPASS: ${assertions.length} checks`);
 process.exit(0);
+})();

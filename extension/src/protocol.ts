@@ -100,6 +100,18 @@ export interface ReadLogRequest extends BaseRequest {
   strip?: boolean;
 }
 
+/**
+ * Runtime introspection — returns extension + runtime metadata for
+ * health-checks and client-side version compatibility checks.
+ */
+export interface IntrospectRequest extends BaseRequest {
+  cmd: 'introspect';
+  /** Optional client-declared version string; server logs a warning on drift. */
+  clientVersion?: string;
+  /** Optional client name for the server log line. */
+  clientName?: string;
+}
+
 export type ClawsRequest =
   | ListRequest
   | CreateRequest
@@ -110,6 +122,7 @@ export type ClawsRequest =
   | PollRequest
   | CloseRequest
   | ReadLogRequest
+  | IntrospectRequest
   | BaseRequest;
 
 export interface TerminalDescriptor {

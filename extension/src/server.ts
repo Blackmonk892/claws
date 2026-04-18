@@ -19,6 +19,20 @@ const MAX_LINE_BYTES = 1024 * 1024;
 // single-digit ms; no answer means nobody's there.
 const STALE_PROBE_TIMEOUT_MS = 250;
 
+/**
+ * Lightweight snapshot of extension state used by the `introspect` command.
+ * The extension passes in an accessor that returns this shape — the server
+ * has no direct vscode dependency for introspect data.
+ */
+export interface IntrospectSnapshot {
+  extensionVersion: string;
+  nodePty: { loaded: boolean; loadedFrom?: string | null; error?: string };
+  servers: Array<{ workspace: string; socket: string | null }>;
+  terminals: number;
+}
+
+export type IntrospectProvider = () => IntrospectSnapshot;
+
 export interface ServerOptions {
   workspaceRoot: string;
   socketRel: string;
@@ -34,14 +48,28 @@ export interface ServerOptions {
    * to `settings.json` edits without a reload.
    */
   getConfig?: ServerConfigProvider;
+  /**
+   * Optional provider that returns a structured snapshot of extension + host
+   * state — powers the `introspect` command and feeds the in-UI health-check
+   * so both paths render the same data.
+   */
+  getIntrospect?: IntrospectProvider;
 }
 
 export class ClawsServer {
   private server: net.Server | null = null;
   private socketPath: string | null = null;
   private startError: Error | null = null;
+  private readonly startedAt: number = Date.now();
+  /** Client versions we've already warned about — one warning per run per version. */
+  private readonly versionWarned = new Set<string>();
 
   constructor(private readonly opts: ServerOptions) {}
+
+  /** Milliseconds since this server instance was constructed. */
+  uptimeMs(): number {
+    return Date.now() - this.startedAt;
+  }
 
   /**
    * Begin listening on the Unix socket. This method is "fire-and-forget"
@@ -183,6 +211,9 @@ export class ClawsServer {
           }) + '\n');
           continue;
         }
+        // Client-version drift detection — warn once per version per run.
+        const asAny = req as ClawsRequest & { clientVersion?: string; clientName?: string };
+        if (asAny.clientVersion) this.maybeWarnClientVersion(asAny.clientVersion, asAny.clientName);
         this.handle(req).then((resp) => {
           socket.write(this.encode(req.id, resp) + '\n');
         }).catch((err) => {
@@ -210,6 +241,27 @@ export class ClawsServer {
 
   private getConfig() {
     return this.opts.getConfig ? this.opts.getConfig() : defaultServerConfig;
+  }
+
+  /**
+   * Compare a reported client version against the current extension version
+   * (via the introspect provider) and log a one-shot warning on drift ≥ 1
+   * minor release. Exact match and unknown-extension-version are silent.
+   */
+  private maybeWarnClientVersion(clientVersion: string, clientName?: string): void {
+    if (!this.opts.getIntrospect) return;
+    if (this.versionWarned.has(clientVersion)) return;
+    const extVersion = this.opts.getIntrospect().extensionVersion;
+    if (!extVersion || extVersion === '0.4.x') return;
+    if (clientVersion === extVersion) return;
+    const drift = compareMinorDrift(clientVersion, extVersion);
+    if (drift >= 1) {
+      this.versionWarned.add(clientVersion);
+      const who = clientName ? ` ${clientName}` : '';
+      this.opts.logger(
+        `[claws] MCP server${who} version ${clientVersion} < extension version ${extVersion} — consider /claws-update`,
+      );
+    }
   }
 
   private async handle(req: ClawsRequest): Promise<ClawsResponse> {
@@ -405,6 +457,45 @@ export class ClawsServer {
       return { ok: false, error: `terminal ${r.id} is not wrapped (no log available)` };
     }
 
+    if (cmd === 'introspect') {
+      const snap = this.opts.getIntrospect ? this.opts.getIntrospect() : null;
+      return {
+        ok: true,
+        protocol: PROTOCOL_VERSION,
+        extensionVersion: snap?.extensionVersion ?? 'unknown',
+        nodeVersion: process.version,
+        electronAbi: Number(process.versions.modules),
+        platform: `${process.platform}-${process.arch}`,
+        nodePty: snap?.nodePty ?? { loaded: false },
+        servers: snap?.servers ?? [{ workspace: this.opts.workspaceRoot, socket: this.socketPath }],
+        terminals: snap?.terminals ?? 0,
+        uptime_ms: this.uptimeMs(),
+      };
+    }
+
     return { ok: false, error: `unknown cmd: ${cmd}` };
   }
+}
+
+/**
+ * Return the minor-version drift between two "major.minor.patch" strings.
+ *
+ *   compareMinorDrift('0.4.0', '0.5.0') === 1
+ *   compareMinorDrift('0.5.1', '0.5.0') === -1  (client newer)
+ *   compareMinorDrift('1.0.0', '0.5.0') === 5   (crude, cross-major-bump)
+ *
+ * Non-semver strings return 0 (silently skip warning).
+ */
+export function compareMinorDrift(client: string, server: string): number {
+  const parse = (s: string): [number, number] | null => {
+    const m = /^(\d+)\.(\d+)\./.exec(s);
+    if (!m) return null;
+    return [parseInt(m[1], 10), parseInt(m[2], 10)];
+  };
+  const c = parse(client);
+  const s = parse(server);
+  if (!c || !s) return 0;
+  // Crude drift: server-minor minus client-minor plus 10x major-drift. Good
+  // enough to flag "client is 1+ minor releases behind".
+  return (s[0] - c[0]) * 10 + (s[1] - c[1]);
 }

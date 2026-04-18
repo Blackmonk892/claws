@@ -1,8 +1,8 @@
 {
   "name": "claws",
-  "displayName": "Claws — Terminal Control Bridge",
+  "displayName": "Claws: Programmable Terminal Bridge",
   "description": "Turn every VS Code terminal into a programmable endpoint. List, create, send, execute, read, and close terminals from any external process via a local socket.",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "publisher": "neunaha",
   "license": "MIT",
   "repository": {
@@ -38,7 +38,14 @@
   ],
   "main": "./dist/extension.js",
   "activationEvents": [
-    "onStartupFinished"
+    "onStartupFinished",
+    "onCommand:claws.healthCheck",
+    "onCommand:claws.showLog",
+    "onCommand:claws.status",
+    "onCommand:claws.statusBar",
+    "onCommand:claws.listTerminals",
+    "onCommand:claws.rebuildPty",
+    "onCommand:claws.uninstallCleanup"
   ],
   "scripts": {
     "compile": "tsc --noEmit && node esbuild.mjs",
@@ -52,7 +59,9 @@
     "test:capture-store": "node test/capture-store-trim.test.js",
     "test:oversized": "node test/oversized-line.test.js",
     "test:pty-lifecycle": "node test/pty-lifecycle.test.js",
-    "test": "npm run typecheck && npm run build && npm run test:smoke && npm run test:native && npm run test:config && npm run test:capture-store && npm run test:oversized && npm run test:pty-lifecycle"
+    "test:profile": "node test/profile-provider.test.js",
+    "test:multiconn": "node test/multi-connection.test.js",
+    "test": "npm run typecheck && npm run build && npm run test:smoke && npm run test:native && npm run test:config && npm run test:capture-store && npm run test:oversized && npm run test:pty-lifecycle && npm run test:profile && npm run test:multiconn"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
@@ -67,23 +76,58 @@
     "commands": [
       {
         "command": "claws.status",
-        "title": "Claws: Show Status"
+        "title": "Show Status",
+        "category": "Claws"
+      },
+      {
+        "command": "claws.statusBar",
+        "title": "Refresh Status Bar",
+        "category": "Claws"
       },
       {
         "command": "claws.listTerminals",
-        "title": "Claws: List Terminals"
+        "title": "List Terminals",
+        "category": "Claws"
       },
       {
         "command": "claws.healthCheck",
-        "title": "Claws: Health Check"
+        "title": "Health Check",
+        "category": "Claws"
       },
       {
         "command": "claws.showLog",
-        "title": "Claws: Show Log"
+        "title": "Show Log",
+        "category": "Claws"
       },
       {
         "command": "claws.rebuildPty",
-        "title": "Claws: Rebuild Native PTY"
+        "title": "Rebuild Native PTY",
+        "category": "Claws"
+      },
+      {
+        "command": "claws.uninstallCleanup",
+        "title": "Uninstall Cleanup (remove Claws files from workspaces)",
+        "category": "Claws"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "claws.healthCheck",
+        "key": "ctrl+alt+c h",
+        "mac": "cmd+alt+c h",
+        "when": "editorTextFocus || !editorTextFocus"
+      },
+      {
+        "command": "claws.showLog",
+        "key": "ctrl+alt+c l",
+        "mac": "cmd+alt+c l",
+        "when": "editorTextFocus || !editorTextFocus"
+      },
+      {
+        "command": "claws.status",
+        "key": "ctrl+alt+c s",
+        "mac": "cmd+alt+c s",
+        "when": "editorTextFocus || !editorTextFocus"
       }
     ],
     "terminal": {
