@@ -1,46 +1,48 @@
 ---
 name: claws-update
-description: Full rebuild — pull latest Claws, re-run entire installer, show what's new from the changelog. Every update is a complete fresh install.
+description: Full rebuild — pull latest Claws, re-run entire installer (all 8 steps), sync extension, show changelog. This is the standard operating procedure for every update.
 ---
 
 # /claws-update
 
-Full rebuild + changelog summary.
+Standard operating procedure. Full rebuild every time.
 
 ## What to do
 
-Step 1 — Pull and rebuild:
+Step 1 — Pull latest and re-run the full installer:
 ```bash
 cd ~/.claws-src && git pull origin main && bash scripts/install.sh
 ```
 
-Step 2 — Read the changelog and show the user what's new:
+This re-runs ALL 8 steps:
+1. git pull latest
+2. Re-link VS Code extension (picks up new extension.js + images + README)
+3. Re-set permissions on all scripts
+4. Verify Node.js (zero Python needed)
+5. Re-register MCP server (node mcp_server.js)
+6. Re-inject ALL rules + skills + 17 slash commands + CLAUDE.md section
+7. Re-inject shell hook (picks up new ASCII banner + commands)
+8. Verify everything
+
+Step 2 — Sync extension assets:
+```bash
+cd ~/.claws-src && cp README.md extension/README.md && cp CHANGELOG.md extension/CHANGELOG.md
+```
+
+Step 3 — Read the changelog:
 ```bash
 cat ~/.claws-src/CHANGELOG.md
 ```
 
-Step 3 — After the rebuild, read the CHANGELOG.md output and summarize it for the user. Show them the latest version section only — what was Added, Fixed, and Changed since their last update. Format it as a friendly "here's what's new" message.
+Step 4 — Summarize what's new for the user. Read the CHANGELOG.md output and show the latest version's Added/Fixed/Changed sections as a friendly message.
 
-Step 4 — End with usage suggestions based on what's new. For example, if a new command was added, show them how to use it. If a bug was fixed, tell them the issue is resolved.
+Step 5 — Tell the user:
 
-Example response after update:
+"Claws fully rebuilt to [version from changelog]. Reload VS Code: Cmd+Shift+P → Developer: Reload Window.
 
-"Claws updated to v0.2.0. Here's what's new:
-
-**New features:**
-- MCP Server — every Claude Code session now has 8 native terminal tools
-- `/claws-help` — prompt engineering guide from beginner to power user
-- Your terminal now shows the CLAWS banner with live status
-- `claws_worker` auto-launches Claude Code with full permissions
-
-**Fixes:**
-- Linux support — wrapped terminals now work on Ubuntu/Fedora
-- macOS pip errors resolved
-- Install never fails — everything continues gracefully
-
-**Try these now:**
-→ `/claws-help` for the full prompt guide
-→ 'spawn a worker to run my tests'
-→ 'run lint, test, build in 3 parallel terminals'
-
-Reload VS Code to activate: Cmd+Shift+P → Developer: Reload Window"
+Here's how to use the latest:
+→ `/claws` for the dashboard
+→ `/claws-do <task>` to run anything visibly
+→ `/claws-go <mission>` to spawn an AI worker
+→ `/claws-learn` for the full prompt guide
+→ `/claws-watch` to see all terminals"
