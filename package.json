@@ -12,5 +12,8 @@
   },
   "keywords": ["claude-code", "terminal", "orchestration", "ai", "vscode", "mcp"],
   "author": "Anish Neunaha",
-  "license": "MIT"
+  "license": "MIT",
+  "scripts": {
+    "test:mcp": "node tests/mcp/worker.test.js"
+  }
 }
