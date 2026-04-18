@@ -309,6 +309,35 @@ CHECKS=0
 [ -f "$MCP_PATH" ] && CHECKS=$((CHECKS+1)) && echo "  ✓ MCP server exists"
 command -v node &>/dev/null && CHECKS=$((CHECKS+1)) && echo "  ✓ Node.js available"
 
+# Verify MCP server can actually start
+if command -v node &>/dev/null && [ -f "$MCP_PATH" ]; then
+  MCP_TEST=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | timeout 3 node "$MCP_PATH" 2>/dev/null | head -c 100)
+  if echo "$MCP_TEST" | grep -q "claws" 2>/dev/null; then
+    CHECKS=$((CHECKS+1))
+    echo "  ✓ MCP server starts and responds"
+  else
+    echo "  ! MCP server exists but didn't respond — check: node $MCP_PATH"
+  fi
+fi
+
+# Verify settings.json has correct absolute path
+if [ -f "$HOME/.claude/settings.json" ]; then
+  if grep -q "$MCP_PATH" "$HOME/.claude/settings.json" 2>/dev/null; then
+    echo "  ✓ MCP path in settings.json matches install"
+  else
+    echo "  ! MCP path mismatch — re-registering..."
+    node -e "
+const fs=require('fs'),p=require('path');
+const sp=p.join('$HOME','.claude','settings.json');
+let cfg={};try{cfg=JSON.parse(fs.readFileSync(sp,'utf8'))}catch{}
+if(!cfg.mcpServers)cfg.mcpServers={};
+cfg.mcpServers.claws={command:'node',args:['$MCP_PATH']};
+fs.writeFileSync(sp,JSON.stringify(cfg,null,2));
+console.log('  ✓ MCP path fixed');
+" 2>/dev/null
+  fi
+fi
+
 echo ""
 echo "  ✓ All $CHECKS checks passed"
 echo ""
