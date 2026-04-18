@@ -25,7 +25,7 @@
 
 ---
 
-Claws is a VS Code extension that exposes your integrated terminals over a local socket. List, create, send commands, capture output, read TUI sessions, and close terminals — all from Python, Node, or any language that speaks JSON.
+Claws is a VS Code extension that exposes your integrated terminals over a local socket. List, create, send commands, capture output, read TUI sessions, and close terminals — all from Node.js, or any language that speaks JSON.
 
 **Built for AI pair programming.** One AI agent spawns, monitors, and drives multiple terminals in parallel — watching output, reacting to errors, sending prompts. Works with Claude Code, Cursor, Copilot, or any terminal-based workflow.
 
@@ -48,7 +48,7 @@ irm https://raw.githubusercontent.com/neunaha/claws/main/scripts/install.ps1 | i
 
 **What happens instantly:**
 1. Clones the repo + links extension (VS Code / Cursor / Windsurf)
-2. Installs Python client + registers MCP server globally
+2. Registers MCP server globally (Node.js, zero dependencies)
 3. Injects shell hook into `.zshrc` / `.bashrc`
 4. **Transforms your current terminal** — Claws banner appears, shell commands activate
 5. Every future terminal shows the Claws status banner
@@ -63,35 +63,22 @@ bash ~/.claws-src/scripts/test-install.sh
 
 ## Usage
 
-```python
-from claws import ClawsClient
-
-client = ClawsClient(".claws/claws.sock")
-
-# See all terminals
-for t in client.list():
-    print(f"{t.id}  {t.name}  pid={t.pid}")
-
-# Create a terminal you can read
-worker = client.create("build", wrapped=True)
-
-# Run a command, get the output
-result = client.exec(worker.id, "npm test")
-print(result.output)       # full stdout + stderr
-print(result.exit_code)    # 0
-
-# Read a TUI session (Claude Code, vim, htop)
-log = client.read_log(worker.id, lines=50)
-
-# Done
-client.close(worker.id)
-```
+With the MCP server registered, Claude Code gets 8 native terminal control tools automatically. No client library needed.
 
 Or use raw sockets from any language:
 
 ```bash
 echo '{"id":1,"cmd":"list"}' | nc -U .claws/claws.sock
 ```
+
+```javascript
+const net = require('net');
+const sock = net.createConnection('.claws/claws.sock');
+sock.write('{"id":1,"cmd":"list"}\n');
+sock.on('data', d => console.log(JSON.parse(d.toString())));
+```
+
+> **Optional:** A [Python client library](docs/guide.md#installing-the-python-client) is available for scripting outside Claude Code.
 
 ---
 
@@ -109,7 +96,7 @@ echo '{"id":1,"cmd":"list"}' | nc -U .claws/claws.sock
 
 **Event Streaming** — poll for finished-command events across all terminals, or tail pty logs in real-time for wrapped terminals.
 
-**Zero Dependencies** — the extension is pure JavaScript with no npm packages. The Python client is stdlib-only.
+**Zero Dependencies** — the extension and MCP server are pure Node.js with no npm packages. Nothing to install beyond the one-liner.
 
 ---
 
@@ -170,8 +157,8 @@ Register Claws as an MCP server and every Claude Code session gets native termin
 {
   "mcpServers": {
     "claws": {
-      "command": "python3",
-      "args": ["/path/to/claws/mcp_server.py"],
+      "command": "node",
+      "args": ["/path/to/claws/mcp_server.js"],
       "env": { "CLAWS_SOCKET": ".claws/claws.sock" }
     }
   }

@@ -35,8 +35,8 @@ The extension is the **server**. Clients connect over Unix socket (same machine)
 Unix Socket           WebSocket
 (same machine)        (cross-device)
      │                     │
-  Python              Node/Python
-  client              client
+  Node.js             Node.js
+  MCP server          client
 ```
 
 ### Wrapped vs Unwrapped terminals
@@ -75,7 +75,7 @@ Claws/
 │   ├── test/           # Extension tests
 │   └── package.json    # Extension manifest
 ├── clients/
-│   ├── python/         # pip install claws-client
+│   ├── python/         # optional — pip install claws-client
 │   └── node/           # npm install @claws/client
 ├── scripts/            # terminal-wrapper.sh and helpers
 ├── examples/           # Orchestrator patterns
@@ -91,7 +91,7 @@ Claws/
 - **Transport**: Unix socket only. WebSocket transport planned (Phase 3).
 - **Cross-device**: not yet. SSH tunnel pattern documented as interim. WebSocket + token auth planned.
 - **Marketplace**: not published yet. Needs publisher account + bundling + tests.
-- **Clients**: Python client extracted. Node client stub.
+- **Clients**: MCP server (Node.js) is primary. Python client optional.
 
 ## Phase plan
 
@@ -136,10 +136,11 @@ Claws/
 
 ## Conventions
 
+- **Node.js only — zero external dependencies.** The extension, MCP server, CLI, and shell hooks are all pure Node.js/JavaScript.
 - **TypeScript** for extension code. Strict mode. No `any`.
-- **Python 3.10+** for client library. Type hints. No external deps (stdlib only).
-- **Node 18+** for Node client. TypeScript. Zero deps.
+- **Node 18+** for MCP server and CLI. Zero deps.
 - Extension must have **zero npm dependencies** — everything stdlib or VS Code API.
+- Python client exists in `clients/python/` as an **optional** convenience — not on the install path.
 - `script(1)` wrapper must work on macOS and Linux (BSD vs GNU `script` flags differ).
 - Protocol is versioned: `{ protocol: "claws/1", ... }` in handshake.
 - MIT license. All contributions welcome.

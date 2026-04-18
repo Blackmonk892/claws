@@ -12,17 +12,14 @@ if [[ $- == *i* ]] && [[ -z "${CLAWS_BANNER_SHOWN:-}" ]]; then
   CLAWS_SOCK="${CLAWS_SOCKET:-.claws/claws.sock}"
   if [ -S "$CLAWS_SOCK" ] 2>/dev/null; then
     _CLAWS_STATUS="\033[32m● connected\033[0m"
-    _CLAWS_TERMS=$(python3 -c "
-import json, socket
-s = socket.socket(socket.AF_UNIX); s.settimeout(2)
-try:
-    s.connect('$CLAWS_SOCK')
-    s.sendall(b'{\"id\":0,\"cmd\":\"list\"}\n')
-    buf = b''
-    while b'\n' not in buf: buf += s.recv(65536)
-    print(len(json.loads(buf.split(b'\n',1)[0]).get('terminals',[])))
-except: print('?')
-finally: s.close()
+    _CLAWS_TERMS=$(node -e "
+const net=require('net');
+const s=net.createConnection('$CLAWS_SOCK');
+s.on('connect',()=>s.write(JSON.stringify({id:0,cmd:'list'})+'\n'));
+let b='';
+s.on('data',d=>{b+=d;if(b.includes('\n')){try{console.log(JSON.parse(b.split('\n')[0]).terminals.length)}catch(e){console.log('?')};s.destroy()}});
+s.on('error',()=>{console.log('?');s.destroy()});
+setTimeout(()=>{console.log('?');s.destroy()},2000);
 " 2>/dev/null || echo "?")
   else
     _CLAWS_STATUS="\033[33m○ socket not found\033[0m"
@@ -64,42 +61,29 @@ fi
 
 claws-ls() {
   local sock="${CLAWS_SOCKET:-.claws/claws.sock}"
-  python3 -c "
-import json, socket
-s = socket.socket(socket.AF_UNIX); s.settimeout(5)
-try:
-    s.connect('$sock')
-    s.sendall(b'{\"id\":1,\"cmd\":\"list\"}\n')
-    buf = b''
-    while b'\n' not in buf: buf += s.recv(65536)
-    d = json.loads(buf.split(b'\n',1)[0])
-    for t in d.get('terminals', []):
-        w = 'WRAPPED' if t.get('logPath') else '       '
-        a = '*' if t.get('active') else ' '
-        print(f\"{a} {t['id']:>3}  {t.get('name',''):<25} pid={t.get('pid')}  [{w}]\")
-except Exception as e: print(f'error: {e} — is the Claws extension running?')
-finally: s.close()
-" 2>/dev/null || echo "error: python3 not available"
+  node -e "
+const net=require('net');
+const s=net.createConnection('$sock');
+s.on('connect',()=>s.write(JSON.stringify({id:1,cmd:'list'})+'\n'));
+let b='';
+s.on('data',d=>{b+=d;if(b.includes('\n')){try{const d2=JSON.parse(b.split('\n')[0]);(d2.terminals||[]).forEach(t=>{const w=t.logPath?'WRAPPED':'       ';const a=t.active?'*':' ';console.log(a+' '+String(t.id).padStart(3)+' '+String(t.name||'').padEnd(25)+' pid='+t.pid+'  ['+w+']')})}catch(e){console.log('error: '+e.message+' — is the Claws extension running?')};s.destroy()}});
+s.on('error',e=>{console.log('error: '+e.message+' — is the Claws extension running?');s.destroy()});
+setTimeout(()=>{console.log('error: timeout');s.destroy()},5000);
+" 2>/dev/null || echo "error: node not available"
 }
 
 claws-new() {
   local name="${1:-claws}"
   local sock="${CLAWS_SOCKET:-.claws/claws.sock}"
-  python3 -c "
-import json, socket
-s = socket.socket(socket.AF_UNIX); s.settimeout(5)
-try:
-    s.connect('$sock')
-    req = json.dumps({'id':1,'cmd':'create','name':'$name','wrapped':True})
-    s.sendall((req + '\n').encode())
-    buf = b''
-    while b'\n' not in buf: buf += s.recv(65536)
-    d = json.loads(buf.split(b'\n',1)[0])
-    if d.get('ok'): print(f\"created terminal {d['id']} — log: {d.get('logPath','')}\")
-    else: print(f\"error: {d.get('error')}\")
-except Exception as e: print(f'error: {e}')
-finally: s.close()
-" 2>/dev/null || echo "error: python3 not available"
+  node -e "
+const net=require('net');
+const s=net.createConnection('$sock');
+s.on('connect',()=>s.write(JSON.stringify({id:1,cmd:'create',name:'$name',wrapped:true})+'\n'));
+let b='';
+s.on('data',d=>{b+=d;if(b.includes('\n')){try{const d2=JSON.parse(b.split('\n')[0]);if(d2.ok){console.log('created terminal '+d2.id+' — log: '+(d2.logPath||''))}else{console.log('error: '+d2.error)}}catch(e){console.log('error: '+e.message)};s.destroy()}});
+s.on('error',e=>{console.log('error: '+e.message);s.destroy()});
+setTimeout(()=>{console.log('error: timeout');s.destroy()},5000);
+" 2>/dev/null || echo "error: node not available"
 }
 
 claws-run() {
@@ -113,34 +97,23 @@ claws-run() {
   # Write command to temp file to avoid shell injection via $cmd interpolation
   local tmpf="/tmp/claws-cmd-$$.txt"
   printf '%s' "$cmd" > "$tmpf"
-  python3 - "$sock" "$id" "$tmpf" <<'PYEOF'
-import json, socket, time, uuid, sys
-from pathlib import Path
-sock_path, term_id, cmd_file = sys.argv[1], sys.argv[2], sys.argv[3]
-cmd = Path(cmd_file).read_text()
-Path(cmd_file).unlink(missing_ok=True)
-s = socket.socket(socket.AF_UNIX); s.settimeout(10)
-try:
-    s.connect(sock_path)
-    eid = uuid.uuid4().hex[:8]
-    base = Path('/tmp/claws-exec'); base.mkdir(exist_ok=True)
-    out_f = base / f'{eid}.out'; done_f = base / f'{eid}.done'
-    wrapper = f'{{ {cmd}; }} > {out_f} 2>&1; echo $? > {done_f}'
-    req = json.dumps({'id':1,'cmd':'send','id':term_id,'text':wrapper})
-    s.sendall((req + '\n').encode())
-    s.recv(4096)
-    deadline = time.time() + 180
-    while time.time() < deadline:
-        if done_f.exists(): break
-        time.sleep(0.2)
-    if done_f.exists():
-        print(f'exit {done_f.read_text().strip()}')
-        print(out_f.read_text() if out_f.exists() else '')
-        out_f.unlink(missing_ok=True); done_f.unlink(missing_ok=True)
-    else: print('timeout')
-except Exception as e: print(f'error: {e}')
-finally: s.close()
-PYEOF
+  node -e "
+const net=require('net'),fs=require('fs'),path=require('path'),crypto=require('crypto');
+const sockPath='$sock',termId='$id',cmdFile='$tmpf';
+const cmd=fs.readFileSync(cmdFile,'utf8');
+try{fs.unlinkSync(cmdFile)}catch(e){}
+const s=net.createConnection(sockPath);
+const eid=crypto.randomBytes(4).toString('hex');
+const base='/tmp/claws-exec';
+try{fs.mkdirSync(base,{recursive:true})}catch(e){}
+const outF=path.join(base,eid+'.out'),doneF=path.join(base,eid+'.done');
+const wrapper='{ '+cmd+'; } > '+outF+' 2>&1; echo \$? > '+doneF;
+s.on('connect',()=>{s.write(JSON.stringify({id:1,cmd:'send',id:termId,text:wrapper})+'\n')});
+let b='';
+s.on('data',d=>{b+=d;if(b.includes('\n')){poll()}});
+function poll(){const deadline=Date.now()+180000;const iv=setInterval(()=>{try{if(fs.existsSync(doneF)){clearInterval(iv);console.log('exit '+fs.readFileSync(doneF,'utf8').trim());try{console.log(fs.readFileSync(outF,'utf8'))}catch(e){};try{fs.unlinkSync(outF)}catch(e){};try{fs.unlinkSync(doneF)}catch(e){};s.destroy()}}catch(e){}if(Date.now()>deadline){clearInterval(iv);console.log('timeout');s.destroy()}},200)}
+s.on('error',e=>{console.log('error: '+e.message);s.destroy()});
+" 2>/dev/null || echo "error: node not available"
 }
 
 claws-log() {
@@ -151,21 +124,13 @@ claws-log() {
     return 1
   fi
   local sock="${CLAWS_SOCKET:-.claws/claws.sock}"
-  python3 -c "
-import json, socket
-s = socket.socket(socket.AF_UNIX); s.settimeout(10)
-try:
-    s.connect('$sock')
-    s.sendall((json.dumps({'id':1,'cmd':'readLog','id':'$id','strip':True}) + '\n').encode())
-    buf = b''
-    while b'\n' not in buf: buf += s.recv(524288)
-    d = json.loads(buf.split(b'\n',1)[0])
-    if d.get('ok'):
-        lines = d.get('bytes','').splitlines()
-        for l in lines[-$lines:]: print(l)
-        print(f'\n[{d.get(\"totalSize\",0)} bytes total]')
-    else: print(f\"error: {d.get('error')}\")
-except Exception as e: print(f'error: {e}')
-finally: s.close()
-" 2>/dev/null || echo "error: python3 not available"
+  node -e "
+const net=require('net');
+const s=net.createConnection('$sock');
+s.on('connect',()=>s.write(JSON.stringify({id:1,cmd:'readLog',id:'$id',strip:true})+'\n'));
+let b='';
+s.on('data',d=>{b+=d;if(b.includes('\n')){try{const d2=JSON.parse(b.split('\n')[0]);if(d2.ok){const lines=(d2.bytes||'').split('\n');lines.slice(-$lines).forEach(l=>console.log(l));console.log('\n['+(d2.totalSize||0)+' bytes total]')}else{console.log('error: '+d2.error)}}catch(e){console.log('error: '+e.message)};s.destroy()}});
+s.on('error',e=>{console.log('error: '+e.message);s.destroy()});
+setTimeout(()=>{console.log('error: timeout');s.destroy()},10000);
+" 2>/dev/null || echo "error: node not available"
 }

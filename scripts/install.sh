@@ -5,8 +5,6 @@
 #
 # Environment overrides:
 #   CLAWS_DIR=/custom/path    — where to clone (default: ~/.claws-src)
-#   CLAWS_SUDO=1              — force sudo for pip install
-#   CLAWS_SKIP_PIP=1          — skip Python client install
 #   CLAWS_SKIP_MCP=1          — skip MCP auto-configure
 #   CLAWS_EDITOR=cursor       — target Cursor instead of VS Code
 
@@ -72,20 +70,12 @@ else
   echo "  Continuing anyway..."
 fi
 
-# Python 3 — used for client + MCP + shell commands. Not a hard blocker.
-PYTHON_CMD=""
-if command -v python3 &>/dev/null; then
-  PYTHON_CMD="python3"
-elif command -v python &>/dev/null && python --version 2>&1 | grep -q "Python 3"; then
-  PYTHON_CMD="python"
-fi
-
-if [ -n "$PYTHON_CMD" ]; then
-  echo "  ✓ $PYTHON_CMD ($($PYTHON_CMD --version 2>&1))"
+# Node.js — soft check (guaranteed on any machine with VS Code / Claude Code)
+if command -v node &>/dev/null; then
+  echo "  ✓ node ($(node --version 2>&1))"
 else
-  echo "  ! Python 3 not found — some features (MCP server, shell commands) will be limited"
-  echo "  Install later: brew install python3 (macOS) or sudo apt install python3 (Linux)"
-  PYTHON_CMD="python3"  # set anyway so later steps can try and gracefully fail
+  echo "  ! Node.js not found — some features (MCP server) may be limited"
+  echo "  Install later: brew install node (macOS) or sudo apt install nodejs (Linux)"
 fi
 echo ""
 
@@ -116,30 +106,15 @@ fi
 # ─── Step 3: Executable permissions ─────────────────────────────────────────
 echo "[3/8] Setting permissions..."
 chmod +x scripts/terminal-wrapper.sh scripts/install.sh scripts/test-install.sh 2>/dev/null || true
-chmod +x mcp_server.py 2>/dev/null || true
+chmod +x mcp_server.js 2>/dev/null || true
 echo "  ✓ Scripts executable"
 
-# ─── Step 4: Python client ──────────────────────────────────────────────────
-if [ "${CLAWS_SKIP_PIP:-}" != "1" ]; then
-  echo "[4/8] Installing Python client..."
-  # Use the detected Python command's pip module to avoid brew path issues
-  if $PYTHON_CMD -m pip install -e clients/python --quiet --break-system-packages 2>/dev/null; then
-    echo "  ✓ Python client installed"
-  elif $PYTHON_CMD -m pip install -e clients/python --user --quiet 2>/dev/null; then
-    echo "  ✓ Python client installed (user)"
-  elif $PYTHON_CMD -m pip install -e clients/python --quiet 2>/dev/null; then
-    echo "  ✓ Python client installed"
-  else
-    # Fallback: just make sure the module is importable by adding to sys.path
-    echo "  ! pip install failed — using sys.path fallback"
-    echo "  The client will work via: PYTHONPATH=$INSTALL_DIR/clients/python python3 -c 'from claws import ClawsClient'"
-  fi
-else
-  echo "[4/8] Skipping Python client (CLAWS_SKIP_PIP=1)"
-fi
+# ─── Step 4: No Python required ─────────────────────────────────────────────
+echo "[4/8] Checking runtime..."
+echo "  ✓ No Python required — Claws uses Node.js only"
 
 # ─── Step 5: Auto-configure MCP server ──────────────────────────────────────
-MCP_PATH="$INSTALL_DIR/mcp_server.py"
+MCP_PATH="$INSTALL_DIR/mcp_server.js"
 if [ "${CLAWS_SKIP_MCP:-}" != "1" ]; then
   echo "[5/8] Configuring MCP server..."
 
@@ -151,35 +126,31 @@ if [ "${CLAWS_SKIP_MCP:-}" != "1" ]; then
       echo "  ✓ MCP server already registered in $CLAUDE_SETTINGS"
     else
       # Inject claws MCP server into existing settings
-      python3 -c "
-import json, sys
-try:
-    with open('$CLAUDE_SETTINGS') as f:
-        cfg = json.load(f)
-    if 'mcpServers' not in cfg:
-        cfg['mcpServers'] = {}
-    cfg['mcpServers']['claws'] = {
-        'command': 'python3',
-        'args': ['$MCP_PATH'],
-        'env': {'CLAWS_SOCKET': '.claws/claws.sock'}
-    }
-    with open('$CLAUDE_SETTINGS', 'w') as f:
-        json.dump(cfg, f, indent=2)
-    print('  ✓ MCP server registered globally in ~/.claude/settings.json')
-except Exception as e:
-    print(f'  ! Could not auto-register MCP: {e}')
-    print(f'  Add manually to {sys.argv[0]}')
+      node -e "
+const fs = require('fs');
+try {
+  const cfg = JSON.parse(fs.readFileSync('$CLAUDE_SETTINGS', 'utf8'));
+  if (!cfg.mcpServers) cfg.mcpServers = {};
+  cfg.mcpServers.claws = {
+    command: 'node',
+    args: ['$MCP_PATH'],
+    env: { CLAWS_SOCKET: '.claws/claws.sock' }
+  };
+  fs.writeFileSync('$CLAUDE_SETTINGS', JSON.stringify(cfg, null, 2));
+  console.log('  ✓ MCP server registered globally in ~/.claude/settings.json');
+} catch (e) {
+  console.log('  ! Could not auto-register MCP: ' + e.message);
+}
 " 2>/dev/null || echo "  ! Auto-register failed — add manually (see below)"
     fi
   else
     # Create settings with just the MCP server
     mkdir -p "$HOME/.claude"
-    python3 -c "
-import json
-cfg = {'mcpServers': {'claws': {'command': 'python3', 'args': ['$MCP_PATH'], 'env': {'CLAWS_SOCKET': '.claws/claws.sock'}}}}
-with open('$HOME/.claude/settings.json', 'w') as f:
-    json.dump(cfg, f, indent=2)
-print('  ✓ Created ~/.claude/settings.json with MCP server')
+    node -e "
+const fs = require('fs');
+const cfg = { mcpServers: { claws: { command: 'node', args: ['$MCP_PATH'], env: { CLAWS_SOCKET: '.claws/claws.sock' } } } };
+fs.writeFileSync('$HOME/.claude/settings.json', JSON.stringify(cfg, null, 2));
+console.log('  ✓ Created ~/.claude/settings.json with MCP server');
 " 2>/dev/null || echo "  ! Could not create settings — add MCP manually"
   fi
 else
@@ -215,14 +186,14 @@ if [ -f "$CLAWS_TEMPLATE" ]; then
     if [ -f "$CLAUDE_MD" ]; then
       if grep -q "CLAWS — Terminal Orchestration Active" "$CLAUDE_MD" 2>/dev/null; then
         # Already injected — replace with latest version
-        python3 -c "
-import re, pathlib
-md = pathlib.Path('$CLAUDE_MD').read_text()
-template = pathlib.Path('$CLAWS_TEMPLATE').read_text()
-pattern = r'## CLAWS — Terminal Orchestration Active.*?Type \x60/claws-help\x60 for the full prompt guide\.'
-md = re.sub(pattern, template.strip(), md, flags=re.DOTALL)
-pathlib.Path('$CLAUDE_MD').write_text(md)
-print('  ✓ CLAUDE.md Claws section updated')
+        node -e "
+const fs = require('fs');
+let md = fs.readFileSync('$CLAUDE_MD', 'utf8');
+const template = fs.readFileSync('$CLAWS_TEMPLATE', 'utf8').trim();
+const pattern = /## CLAWS — Terminal Orchestration Active[\s\S]*?Type \x60\/claws-help\x60 for the full prompt guide\./;
+md = md.replace(pattern, template);
+fs.writeFileSync('$CLAUDE_MD', md);
+console.log('  ✓ CLAUDE.md Claws section updated');
 " 2>/dev/null || echo "  ✓ CLAUDE.md already has Claws section"
       else
         # Append to end
@@ -316,8 +287,8 @@ echo "[8/8] Verifying..."
 CHECKS=0
 [ -L "$EXT_LINK" ] && CHECKS=$((CHECKS+1)) && echo "  ✓ Extension symlink"
 [ -x "scripts/terminal-wrapper.sh" ] && CHECKS=$((CHECKS+1)) && echo "  ✓ Wrapper executable"
-python3 -c "from claws import ClawsClient" 2>/dev/null && CHECKS=$((CHECKS+1)) && echo "  ✓ Python client importable"
 [ -f "$MCP_PATH" ] && CHECKS=$((CHECKS+1)) && echo "  ✓ MCP server exists"
+command -v node &>/dev/null && CHECKS=$((CHECKS+1)) && echo "  ✓ Node.js available"
 
 echo ""
 echo "  ✓ All $CHECKS checks passed"

@@ -58,15 +58,15 @@ function install() {
 
   // 1. Clone or pull
   if (fs.existsSync(INSTALL_DIR)) {
-    console.log('[1/8] Updating existing install...');
+    console.log('[1/7] Updating existing install...');
     run(`cd "${INSTALL_DIR}" && git pull origin main --quiet`, { ignoreError: true });
   } else {
-    console.log('[1/8] Cloning...');
+    console.log('[1/7] Cloning...');
     run(`git clone --quiet "${REPO}" "${INSTALL_DIR}"`, { ignoreError: true });
   }
 
   // 2. Extension symlink
-  console.log('[2/8] Installing VS Code extension...');
+  console.log('[2/7] Installing VS Code extension...');
   const extDir = detectExtDir();
   const extLink = path.join(extDir, 'neunaha.claws-0.1.0');
   try { fs.unlinkSync(extLink); } catch {}
@@ -84,21 +84,16 @@ function install() {
   }
 
   // 3. Permissions
-  console.log('[3/8] Setting permissions...');
-  ['scripts/terminal-wrapper.sh', 'scripts/install.sh', 'scripts/test-install.sh', 'mcp_server.py'].forEach(f => {
+  console.log('[3/7] Setting permissions...');
+  ['scripts/terminal-wrapper.sh', 'scripts/install.sh', 'scripts/test-install.sh', 'mcp_server.js'].forEach(f => {
     try { fs.chmodSync(path.join(INSTALL_DIR, f), 0o755); } catch {}
   });
   console.log('  ✓ Scripts executable');
 
-  // 4. Python client
-  console.log('[4/8] Installing Python client...');
-  run(`pip3 install -e "${path.join(INSTALL_DIR, 'clients/python')}" --quiet 2>/dev/null || pip install -e "${path.join(INSTALL_DIR, 'clients/python')}" --quiet 2>/dev/null || echo "  (pip not found — install manually)"`, { ignoreError: true });
-  console.log('  ✓ Python client');
-
-  // 5. MCP server — use claude mcp add if available, fall back to settings.json
-  console.log('[5/8] Registering MCP server...');
-  const mcpPath = path.join(INSTALL_DIR, 'mcp_server.py');
-  const claudeMcpResult = spawnSync('claude', ['mcp', 'add', 'claws', '-s', 'user', '--', 'python3', mcpPath], {
+  // 4. MCP server — use claude mcp add if available, fall back to settings.json
+  console.log('[4/7] Registering MCP server...');
+  const mcpPath = path.join(INSTALL_DIR, 'mcp_server.js');
+  const claudeMcpResult = spawnSync('claude', ['mcp', 'add', 'claws', '-s', 'user', '--', 'node', mcpPath], {
     encoding: 'utf8', stdio: 'pipe', timeout: 10000,
   });
   if (claudeMcpResult.status === 0) {
@@ -114,7 +109,7 @@ function install() {
       }
       if (!cfg.mcpServers) cfg.mcpServers = {};
       cfg.mcpServers.claws = {
-        command: 'python3',
+        command: 'node',
         args: [mcpPath],
         env: { CLAWS_SOCKET: '.claws/claws.sock' },
       };
@@ -125,8 +120,8 @@ function install() {
     }
   }
 
-  // 6. Global context injection
-  console.log('[6/8] Injecting rules + skills + commands...');
+  // 5. Global context injection
+  console.log('[5/7] Injecting rules + skills + commands...');
   const claudeDir = path.join(HOME, '.claude');
   const dirs = ['rules', 'skills', 'commands'];
   dirs.forEach(d => fs.mkdirSync(path.join(claudeDir, d), { recursive: true }));
@@ -159,8 +154,8 @@ function install() {
   }
   console.log('  ✓ Rules + skills + 11 slash commands injected');
 
-  // 7. Shell hook
-  console.log('[7/8] Injecting shell hook...');
+  // 6. Shell hook
+  console.log('[6/7] Injecting shell hook...');
   const hookLine = `\n# CLAWS terminal hook\nsource "${path.join(INSTALL_DIR, 'scripts', 'shell-hook.sh')}"\n`;
   ['.zshrc', '.bashrc', '.bash_profile'].forEach(rc => {
     const rcPath = path.join(HOME, rc);
@@ -173,8 +168,8 @@ function install() {
     }
   });
 
-  // 8. Verify
-  console.log('[8/8] Verifying...');
+  // 7. Verify
+  console.log('[7/7] Verifying...');
   let checks = 0;
   if (fs.existsSync(extLink)) { checks++; console.log('  ✓ Extension'); }
   if (fs.existsSync(mcpPath)) { checks++; console.log('  ✓ MCP server'); }
@@ -199,10 +194,10 @@ function status() {
   const checks = [];
   const extLink = path.join(detectExtDir(), 'neunaha.claws-0.1.0');
   checks.push(['Extension', fs.existsSync(extLink)]);
-  checks.push(['MCP server', fs.existsSync(path.join(INSTALL_DIR, 'mcp_server.py'))]);
+  checks.push(['MCP server', fs.existsSync(path.join(INSTALL_DIR, 'mcp_server.js'))]);
   checks.push(['Behavior rule', fs.existsSync(path.join(HOME, '.claude', 'rules', 'claws-default-behavior.md'))]);
   checks.push(['Orchestration skill', fs.existsSync(path.join(HOME, '.claude', 'skills', 'claws-orchestration-engine'))]);
-  checks.push(['Python client', spawnSync('python3', ['-c', 'from claws import ClawsClient'], { stdio: 'pipe' }).status === 0]);
+  checks.push(['Node.js', spawnSync('node', ['--version'], { stdio: 'pipe' }).status === 0]);
   checks.forEach(([name, ok]) => console.log(`  ${ok ? '✓' : '✗'} ${name}`));
   console.log('');
 }
