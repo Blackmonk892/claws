@@ -26,16 +26,23 @@ interface NodePtyProcess {
   kill(signal?: string): void;
 }
 
-let nodePtyCache: NodePtyModule | null | undefined;
+let nodePtyCache: NodePtyModule | null = null;
 
+// Load node-pty, caching only successful loads. If the binary is missing or
+// fails to load, we return null — but we DON'T cache that null, so the next
+// terminal spawn retries. This matters when /claws-update compiles the native
+// binary mid-session: new terminal spawns pick it up without needing a full
+// VS Code reload. (A fresh extension activation still re-evaluates from
+// scratch; this only affects the case where the extension has already loaded
+// and the binary appears on disk afterward.)
 function loadNodePty(): NodePtyModule | null {
-  if (nodePtyCache !== undefined) return nodePtyCache;
+  if (nodePtyCache) return nodePtyCache;
   try {
     nodePtyCache = require('node-pty') as NodePtyModule;
+    return nodePtyCache;
   } catch {
-    nodePtyCache = null;
+    return null;
   }
-  return nodePtyCache;
 }
 
 export interface ClawsPtyOptions {

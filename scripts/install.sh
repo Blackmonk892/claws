@@ -294,6 +294,7 @@ if command -v npm &>/dev/null && [ -f "$INSTALL_DIR/extension/package.json" ]; t
       # vim, htop) as garbage. This is the single biggest reason installs
       # look "fine" but wrapped terminals are broken.
       NPTY_BIN="$INSTALL_DIR/extension/node_modules/node-pty/build/Release/pty.node"
+      NPTY_JUST_COMPILED=0
       if [ -d "$INSTALL_DIR/extension/node_modules/node-pty" ] && [ ! -f "$NPTY_BIN" ]; then
         warn "node-pty binary missing — prebuild didn't match Node $(node --version). Compiling from source..."
         if ! xcode-select -p &>/dev/null && [ "$(uname)" = "Darwin" ]; then
@@ -302,6 +303,7 @@ if command -v npm &>/dev/null && [ -f "$INSTALL_DIR/extension/package.json" ]; t
         elif ( cd "$INSTALL_DIR/extension/node_modules/node-pty" && npx --yes node-gyp rebuild >/dev/null 2>&1 ); then
           if [ -f "$NPTY_BIN" ]; then
             ok "node-pty compiled from source ($(wc -c < "$NPTY_BIN" | tr -d ' ') bytes)"
+            NPTY_JUST_COMPILED=1
           else
             warn "node-gyp reported success but binary still missing — wrapped terminals will use pipe-mode"
           fi
@@ -309,6 +311,14 @@ if command -v npm &>/dev/null && [ -f "$INSTALL_DIR/extension/package.json" ]; t
           warn "node-gyp rebuild failed — wrapped terminals will fall back to pipe-mode."
           info "TUI rendering (claude, vim, htop) will be degraded. See $CLAWS_LOG for build errors."
         fi
+      fi
+      # Explicit nudge when we just compiled the binary: any VS Code window
+      # that was open before this step needs to reload for the extension to
+      # pick up the newly-compiled pty.node. Without a reload, already-
+      # running extension instances keep using the pipe-mode fallback.
+      if [ "$NPTY_JUST_COMPILED" = "1" ]; then
+        info "node-pty was just compiled — Reload VS Code (Cmd+Shift+P → Developer: Reload Window)"
+        info "to clear the pipe-mode warning in any open terminal."
       fi
     else
       warn "extension build failed — see $CLAWS_LOG for details. Falling back to legacy JS."
