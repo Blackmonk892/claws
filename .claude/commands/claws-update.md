@@ -1,30 +1,41 @@
 ---
 name: claws-update
-description: One command. Pulls latest Claws, rebuilds the TypeScript extension bundle, re-runs the project-local installer (migrates legacy CLAUDE.md, refreshes .mcp.json + .claws-bin + .claude), shows what's new, renders the CLAWS banner. The user types /claws-update and waits. Nothing else needed.
+description: One command. Pulls the latest Claws source, runs the project-local installer (which rebuilds the TypeScript bundle, refreshes .mcp.json + .claws-bin + .claude, migrates legacy CLAUDE.md, verifies everything with 10 checks), syncs extension docs, shows the changelog, and renders the CLAWS banner. The user types /claws-update and waits.
 ---
 
 # /claws-update
 
-**Run from the project root** (so project-local install targets the right folder). Single bash call — pull, rebuild, re-install, migrate, verify, render banner:
+**Run from the project root** so the installer targets the right folder. Single bash call:
 
 ```bash
-PROJECT_PWD="$(pwd)" && cd ~/.claws-src && git pull origin main 2>&1 && ( cd extension && npm install --no-audit --no-fund --loglevel=error --silent && npm run build --silent ) 2>&1 | tail -5 && cp README.md extension/README.md 2>/dev/null; cp CHANGELOG.md extension/CHANGELOG.md 2>/dev/null; cd "$PROJECT_PWD" && bash ~/.claws-src/scripts/install.sh && echo "" && echo "  ═══════════════════════════════════════" && echo "  WHAT'S NEW (full: ~/.claws-src/CHANGELOG.md):" && echo "  ═══════════════════════════════════════" && head -60 ~/.claws-src/CHANGELOG.md | tail -55 && echo "" && echo "  ═══════════════════════════════════════" && unset CLAWS_BANNER_SHOWN && source ~/.claws-src/scripts/shell-hook.sh
+PROJECT_PWD="$(pwd)" && cd ~/.claws-src && git pull --ff-only origin main && cp README.md extension/README.md 2>/dev/null; cp CHANGELOG.md extension/CHANGELOG.md 2>/dev/null; cd "$PROJECT_PWD" && bash ~/.claws-src/scripts/install.sh && echo "" && echo "  ═══════════════════════════════════════" && echo "  WHAT'S NEW (full log: ~/.claws-src/CHANGELOG.md)" && echo "  ═══════════════════════════════════════" && awk '/^## \[/{c++} c==1 && NR>1{print}' ~/.claws-src/CHANGELOG.md | head -60 && echo "" && echo "  ═══════════════════════════════════════" && unset CLAWS_BANNER_SHOWN && source ~/.claws-src/scripts/shell-hook.sh
 ```
 
 ONE bash call. Do NOT break into multiple steps. Do NOT interleave commentary. Let the output speak for itself.
 
-## What this does for v0.3 → v0.4 upgraders
+## What this does
 
-1. **Pulls latest** into `~/.claws-src`.
-2. **Rebuilds the extension bundle** — TypeScript + esbuild produce `dist/extension.js`. Optional `node-pty` native module compiles; if it fails the installer falls back to legacy JS (extension still works, without the Pseudoterminal path).
-3. **Runs the installer against THIS project** — writes `<project>/.mcp.json`, `<project>/.claws-bin/mcp_server.js`, `<project>/.claude/{commands,rules,skills}/`, and **automatically migrates any legacy `## CLAWS — Terminal Orchestration Active` section** in `<project>/CLAUDE.md` into the new fenced `<!-- CLAWS:BEGIN --> ... <!-- CLAWS:END -->` block.
-4. **Shows the v0.4 changelog + renders the ASCII banner.**
+1. **`cd ~/.claws-src && git pull --ff-only origin main`** — fast-forward pull of the source.
+2. **Syncs `README.md` and `CHANGELOG.md` into `extension/`** — keeps the marketplace-facing docs in step with the root.
+3. **Runs `~/.claws-src/scripts/install.sh` from the current project root** — this is the rewritten v0.4 installer. It:
+   - Rebuilds the TypeScript bundle (`dist/extension.js`) with esbuild. Falls back to legacy JS if `node-pty` doesn't compile.
+   - Re-creates/refreshes the `~/.vscode/extensions/neunaha.claws-<version>` symlink.
+   - Writes `<project>/.mcp.json`, `<project>/.claws-bin/{mcp_server.js, shell-hook.sh}`.
+   - Copies all 19 slash commands, rules, and skills into `<project>/.claude/`.
+   - Runs the CLAUDE.md injector — **migrates legacy v0.1–v0.3 `## CLAWS — Terminal Orchestration Active` sections into the new fenced `<!-- CLAWS:BEGIN --> ... <!-- CLAWS:END -->` block** while preserving all other project content.
+   - Runs 10 verification checks with visible ✓/✗ markers.
+   - Saves a full install log to `/tmp/claws-install-<timestamp>.log`.
+4. **Prints the latest changelog entry** (just the newest `## [x.y.z]` section).
+5. **Re-sources the shell hook** so the new CLAWS banner renders in the current terminal.
 
 ## After the output finishes, tell the user EXACTLY this
 
-Update complete. **Two things to activate v0.4:**
+Update complete. **Two things to activate:**
 
 1. **Reload VS Code** — `Cmd+Shift+P → Developer: Reload Window`
 2. **Restart Claude Code in this project** — exit this Claude session and re-open `claude` from the project root so the new project-local `.mcp.json` is picked up.
 
-If the MCP tools don't appear after restart, run `/claws-fix`.
+If anything looks off:
+- **MCP tools not appearing?** → run `/claws-fix`
+- **Install looked wrong or something failed?** → run `/claws-report` to bundle logs + diagnostics, then share the file (`~/claws-report-<timestamp>.txt`) for help.
+- **See the install log directly**: the banner at the end of `/claws-update` prints the log path (`/tmp/claws-install-<timestamp>.log`).
