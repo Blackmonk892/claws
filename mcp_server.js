@@ -211,19 +211,168 @@ const TOOLS = [
   },
   {
     name: 'claws_worker',
-    description: 'Spawn a complete VISIBLE worker terminal. Creates a wrapped terminal, launches interactive Claude Code with --dangerously-skip-permissions (full tool access), waits for boot, then sends the mission prompt. The worker runs visibly in VS Code\'s terminal panel. NEVER headless.',
+    description: 'Run a complete worker lifecycle in one blocking call: creates a wrapped terminal, optionally launches Claude Code with --dangerously-skip-permissions, sends the mission prompt, polls the capture buffer for a completion marker (default MISSION_COMPLETE) or error markers, harvests the final output, and auto-closes. Returns a structured result. Set detach=true for the legacy fire-and-forget behavior.',
     inputSchema: {
       type: 'object',
       properties: {
-        name: { type: 'string', description: 'Worker name (appears as terminal tab name)' },
-        mission: { type: 'string', description: 'Mission prompt to send to Claude Code. Single line. Include MISSION_COMPLETE marker.' },
-        launch_claude: { type: 'boolean', description: 'Auto-launch claude --dangerously-skip-permissions (default true)' },
-        command: { type: 'string', description: 'Alternative: raw shell command instead of Claude mission. Set launch_claude=false.' },
+        name: { type: 'string', description: 'Worker name (terminal tab)' },
+        mission: { type: 'string', description: 'Mission prompt sent to Claude Code. Include your completion marker (default MISSION_COMPLETE) so the blocker knows when to stop.' },
+        command: { type: 'string', description: 'Alternative to mission: raw shell command sent to a wrapped terminal. Implies launch_claude=false.' },
+        launch_claude: { type: 'boolean', description: 'Launch claude --dangerously-skip-permissions before sending mission (default: true if mission present, false if command present)' },
+        detach: { type: 'boolean', description: 'Return immediately after spawning (legacy behavior, default false).' },
+        timeout_ms: { type: 'integer', description: 'Max wait for completion in ms (default 1800000 = 30 min).' },
+        boot_wait_ms: { type: 'integer', description: 'Max wait for Claude Code boot before sending mission (default 8000).' },
+        boot_marker: { type: 'string', description: 'Substring that indicates Claude booted (default "Claude Code").' },
+        complete_marker: { type: 'string', description: 'Substring that signals success (default "MISSION_COMPLETE").' },
+        error_markers: { type: 'array', items: { type: 'string' }, description: 'Substrings that signal failure (default ["MISSION_FAILED"]).' },
+        poll_interval_ms: { type: 'integer', description: 'How often to check the capture buffer (default 1500).' },
+        harvest_lines: { type: 'integer', description: 'Tail N lines of output to return on completion (default 200).' },
+        close_on_complete: { type: 'boolean', description: 'Auto-close the terminal after completion (default true).' },
       },
       required: ['name'],
     },
   },
 ];
+
+// ─── Blocking worker lifecycle ─────────────────────────────────────────────
+
+function findMarkerLine(text, marker) {
+  const idx = text.indexOf(marker);
+  if (idx === -1) return null;
+  const lineStart = text.lastIndexOf('\n', idx) + 1;
+  const lineEnd = text.indexOf('\n', idx);
+  return text.slice(lineStart, lineEnd === -1 ? text.length : lineEnd).trim();
+}
+
+async function runBlockingWorker(sock, args) {
+  const DEFAULTS = {
+    timeout_ms: 30 * 60 * 1000,
+    boot_wait_ms: 8000,
+    boot_marker: 'Claude Code',
+    complete_marker: 'MISSION_COMPLETE',
+    error_markers: ['MISSION_FAILED'],
+    poll_interval_ms: 1500,
+    harvest_lines: 200,
+    close_on_complete: true,
+  };
+  const opt = { ...DEFAULTS, ...args };
+  const hasMission = typeof args.mission === 'string' && args.mission.length > 0;
+  const hasCommand = typeof args.command === 'string' && args.command.length > 0;
+  const launchClaude = args.launch_claude !== undefined
+    ? !!args.launch_claude
+    : hasMission;
+
+  // 1. Create wrapped terminal
+  const cr = await clawsRpc(sock, {
+    cmd: 'create', name: args.name || 'claws-worker', wrapped: true, show: true,
+  });
+  if (!cr.ok) return { status: 'error', error: `create failed: ${cr.error}` };
+  const termId = cr.id;
+  const startedAt = Date.now();
+
+  // 2. Give shell a moment to emit prompt
+  await sleep(400);
+
+  // 3. Optional claude boot + detection
+  let booted = !launchClaude;
+  if (launchClaude) {
+    await clawsRpc(sock, {
+      cmd: 'send', id: termId,
+      text: 'claude --dangerously-skip-permissions', newline: true,
+    });
+    const bootDeadline = Date.now() + opt.boot_wait_ms;
+    while (Date.now() < bootDeadline) {
+      const snap = await clawsRpc(sock, {
+        cmd: 'readLog', id: termId, strip: true, limit: 32 * 1024,
+      });
+      if (snap.ok && typeof snap.bytes === 'string' && snap.bytes.includes(opt.boot_marker)) {
+        booted = true;
+        break;
+      }
+      await sleep(400);
+    }
+    // proceed even if marker missed — best-effort
+    await sleep(500);
+  }
+
+  // 4. Send payload
+  const payload = hasMission ? args.mission : hasCommand ? args.command : '';
+  if (payload) {
+    await clawsRpc(sock, {
+      cmd: 'send', id: termId, text: payload, newline: true,
+    });
+    if (launchClaude) {
+      // Claude Code TUI sometimes needs an extra Enter to submit
+      await sleep(300);
+      await clawsRpc(sock, {
+        cmd: 'send', id: termId, text: '\r', newline: false,
+      });
+    }
+  }
+
+  // 5. Detach shortcut
+  if (args.detach === true) {
+    return {
+      status: 'spawned',
+      terminal_id: termId,
+      booted,
+      duration_ms: Date.now() - startedAt,
+    };
+  }
+
+  // 6. Poll for completion / errors / timeout
+  const timeoutDeadline = startedAt + opt.timeout_ms;
+  let status = 'timeout';
+  let markerLine = null;
+  while (Date.now() < timeoutDeadline) {
+    const snap = await clawsRpc(sock, {
+      cmd: 'readLog', id: termId, strip: true, limit: 64 * 1024,
+    });
+    const text = snap.ok && typeof snap.bytes === 'string' ? snap.bytes : '';
+
+    if (text.includes(opt.complete_marker)) {
+      status = 'completed';
+      markerLine = findMarkerLine(text, opt.complete_marker);
+      break;
+    }
+    let failed = false;
+    for (const em of opt.error_markers) {
+      if (em && text.includes(em)) {
+        status = 'failed';
+        markerLine = findMarkerLine(text, em);
+        failed = true;
+        break;
+      }
+    }
+    if (failed) break;
+
+    await sleep(opt.poll_interval_ms);
+  }
+
+  // 7. Harvest final output
+  const final = await clawsRpc(sock, {
+    cmd: 'readLog', id: termId, strip: true, limit: 256 * 1024,
+  });
+  const allLines = (final.ok && typeof final.bytes === 'string' ? final.bytes : '').split('\n');
+  const harvest = allLines.slice(-opt.harvest_lines).join('\n');
+
+  // 8. Auto-close
+  let cleanedUp = false;
+  if (opt.close_on_complete) {
+    const cl = await clawsRpc(sock, { cmd: 'close', id: termId });
+    cleanedUp = !!cl.ok;
+  }
+
+  return {
+    status,
+    terminal_id: termId,
+    booted,
+    duration_ms: Date.now() - startedAt,
+    marker_line: markerLine,
+    cleaned_up: cleanedUp,
+    harvest,
+  };
+}
 
 // ─── Tool handlers ─────────────────────────────────────────────────────────
 
@@ -311,49 +460,28 @@ async function handleTool(name, args) {
   }
 
   if (name === 'claws_worker') {
-    const launchClaude = args.launch_claude !== false;
-    const mission = args.mission || args.command || '';
+    const result = await runBlockingWorker(sock, args);
 
-    const createResp = await clawsRpc(sock, {
-      cmd: 'create', name: args.name, wrapped: true, show: true,
-    });
-    if (!createResp.ok) return [{ type: 'text', text: `ERROR creating terminal: ${createResp.error}` }];
-    const termId = createResp.id;
-    const logPath = createResp.logPath || '';
-
-    await sleep(1500);
-
-    if (launchClaude) {
-      await clawsRpc(sock, { cmd: 'send', id: termId, text: 'claude --dangerously-skip-permissions', newline: true });
-      await sleep(5000);
-      if (mission) {
-        await clawsRpc(sock, { cmd: 'send', id: termId, text: mission, newline: true });
-        await sleep(300);
-        await clawsRpc(sock, { cmd: 'send', id: termId, text: '\r', newline: false });
-      }
-      return [{ type: 'text', text: [
-        `worker '${args.name}' spawned with Claude Code (full permissions)`,
-        `  terminal: ${termId}`,
-        `  log: ${logPath}`,
-        `  claude: interactive, --dangerously-skip-permissions`,
-        mission ? `  mission sent: ${mission.slice(0, 100)}...` : '  no mission sent — waiting for prompt',
-        '', `use claws_read_log id=${termId} to monitor`,
-        `use claws_send id=${termId} to send follow-up prompts`,
-        `use claws_close id=${termId} when done`,
-      ].join('\n') }];
-    } else {
-      if (mission) {
-        await clawsRpc(sock, { cmd: 'send', id: termId, text: mission, newline: true });
-      }
-      return [{ type: 'text', text: [
-        `worker '${args.name}' spawned (shell mode)`,
-        `  terminal: ${termId}`,
-        `  log: ${logPath}`,
-        mission ? `  command sent: ${mission.slice(0, 100)}` : '  idle shell',
-        '', `use claws_read_log id=${termId} to monitor`,
-        `use claws_close id=${termId} when done`,
-      ].join('\n') }];
+    if (result.status === 'error') {
+      return [{ type: 'text', text: `ERROR: ${result.error}` }];
     }
+
+    const header = [
+      `worker '${args.name}' ${result.status.toUpperCase()}`,
+      `  terminal:   ${result.terminal_id}`,
+      `  duration:   ${(result.duration_ms / 1000).toFixed(1)}s`,
+      `  booted:     ${result.booted}`,
+      `  cleaned_up: ${result.cleaned_up}`,
+    ];
+    if (result.marker_line) header.push(`  marker:     ${result.marker_line}`);
+
+    if (result.status === 'spawned') {
+      header.push('', `detached mode — use claws_read_log id=${result.terminal_id} and claws_close when done`);
+      return [{ type: 'text', text: header.join('\n') }];
+    }
+
+    const body = result.harvest || '';
+    return [{ type: 'text', text: header.join('\n') + '\n\n── harvest (last lines) ──\n' + body }];
   }
 
   return [{ type: 'text', text: `unknown tool: ${name}` }];
@@ -373,7 +501,7 @@ async function main() {
     if (method === 'initialize') {
       respond(id, {
         protocolVersion: '2024-11-05',
-        serverInfo: { name: 'claws', version: '0.3.0' },
+        serverInfo: { name: 'claws', version: '0.4.0' },
         capabilities: { tools: {} },
       });
     } else if (method === 'notifications/initialized') {

@@ -68,22 +68,56 @@ Full protocol spec: `@docs/protocol.md`.
 
 ## Project structure
 
+The repo has a **strict separation between product code (ships to GitHub, consumed by the installer) and local-development material (never leaves your machine)**. Anything that isn't product-facing belongs in `.local/` — don't put planning docs, audits, or scratch notes at the repo root.
+
+### Product — ships to GitHub
 ```
 Claws/
-├── extension/          # VS Code extension (the published package)
-│   ├── src/            # TypeScript source
-│   ├── test/           # Extension tests
-│   └── package.json    # Extension manifest
-├── clients/
-│   ├── python/         # optional — pip install claws-client
-│   └── node/           # npm install @claws/client
-├── scripts/            # terminal-wrapper.sh and helpers
-├── examples/           # Orchestrator patterns
-├── docs/               # Architecture, protocol, security
-├── CLAUDE.md           # This file
-├── README.md           # Public README
-└── LICENSE             # MIT
+├── extension/          # VS Code extension (TypeScript + esbuild bundle)
+│   ├── src/            #   source — extension.ts, server.ts, claws-pty.ts, …
+│   ├── test/           #   smoke + worker test harnesses
+│   ├── package.json    #   manifest, build scripts, deps (node-pty optional)
+│   ├── tsconfig.json   #   strict TS config
+│   ├── esbuild.mjs     #   bundler entry
+│   └── .vscodeignore   #   VSIX packaging exclusions
+├── scripts/            # install.sh, shell-hook.sh, terminal-wrapper.sh, test-install.sh
+├── mcp_server.js       # MCP server — installer copies into <project>/.claws-bin/
+├── cli.js              # root CLI entry (package.json bin)
+├── clients/            # optional language clients (python/, node/)
+├── .claude/            # installer copies these into each project
+│   ├── commands/       #   19 claws-* slash commands
+│   └── skills/         #   orchestration-engine, prompt-templates
+├── rules/              # claws-default-behavior.md — installer copies it
+├── templates/          # CLAUDE.claws.md — legacy reference for the injector
+├── docs/               # user/architecture docs (protocol.md, guide.md, …)
+├── examples/           # orchestrator patterns
+├── .github/            # CI workflows, issue templates
+├── CLAUDE.md           # this file — contributor architecture doc
+├── README.md           # public README
+├── CHANGELOG.md        # version history
+├── CONTRIBUTING.md, CODE_OF_CONDUCT.md, SECURITY.md  # community conventions
+├── LICENSE             # MIT
+├── package.json        # root npm manifest (bin → cli.js)
+└── .gitignore
 ```
+
+### Local-only — gitignored, never leaves your machine
+```
+.local/
+├── README.md           # convention doc — read it before adding anything
+├── audits/             # internal audits, post-mortems
+├── blueprints/         # roadmaps, rewrite plans (e.g. v0.4-rewrite-plan.md)
+└── notes/              # scratch notes, decisions, open questions
+```
+Plus any top-level `NOTES.md`, `TODO.md`, `SCRATCH.md` — all gitignored by pattern.
+
+### Where does a new file belong?
+Ask: "Would a user of Claws want or need this?"
+- **Yes** → product tree above (usually `docs/`, `examples/`, or inside an existing product subdir).
+- **No, it's internal planning** → `.local/{audits,blueprints,notes}/`.
+- **No, it's a build artifact** → don't commit it; extend `.gitignore` if needed.
+
+See `.local/README.md` for the full rubric.
 
 ## Current state
 

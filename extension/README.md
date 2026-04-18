@@ -37,24 +37,27 @@
   <img src="https://raw.githubusercontent.com/neunaha/claws/main/docs/images/install-flow.png" alt="Install Flow" width="720">
 </p>
 
-### Step 1 — Install
+### Step 1 — Install into your project
 
-**Paste this into any Claude Code terminal:**
+**From the project root**, paste this into any terminal:
 
-> install claws from https://github.com/neunaha/claws — run the install script and set up everything
-
-**Or run directly:**
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/neunaha/claws/main/scripts/install.sh)
 ```
 
-**Zero dependencies.** No Python. No pip. No brew. Just Node.js (ships with VS Code).
+The installer is **project-local** — it writes `.mcp.json`, `.claws-bin/mcp_server.js`, and `.claude/{commands,rules,skills}/` into the project you're in. Each project gets its own configurable Claws setup. Re-run it in any other project to enable Claws there.
+
+**Zero runtime dependencies.** Just Node.js (ships with VS Code). The extension is built from TypeScript on install; `node-pty` is an optional native dep with a pure-Node fallback.
 
 ### Step 2 — Reload VS Code
 
 `Cmd+Shift+P` → `Developer: Reload Window`
 
-### Step 3 — You're ready
+### Step 3 — Restart Claude Code in this project
+
+Exit your current Claude Code session and re-open `claude` from the project root so it picks up the project-local `.mcp.json` and registers the 8 Claws tools. If the tools don't appear, run `/claws-fix`.
+
+### Step 4 — You're ready
 
 Type `/claws` to see the dashboard. Type `/claws-do run my tests` to see it work.
 
@@ -113,7 +116,7 @@ One command to remember: **`/claws`**
 
 Claws runs a socket server inside VS Code. Any process connects and controls terminals via JSON commands.
 
-**Wrapped terminals** are the key feature — they run your shell inside `script(1)`, which logs every byte to a file. Claws reads it back with ANSI escapes stripped, giving you clean text of everything — including TUI sessions like Claude Code, vim, htop.
+**Wrapped terminals** are the key feature — as of v0.4 they use VS Code's native `Pseudoterminal` API (backed by `node-pty`, with a `child_process` pipe-mode fallback). No `script(1)` wrapping means **zero rendering corruption** for TUI apps like Claude Code, vim, htop, k9s. Every byte the shell emits flows through the extension's own `onDidWrite` event and into an in-memory ring buffer — readable via `readLog` with ANSI escapes stripped, giving you clean text of everything that happened.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/neunaha/claws/main/docs/images/wrapped-terminal.png" alt="Wrapped Terminal Data Flow" width="720">
@@ -151,19 +154,21 @@ Run commands with captured stdout + stderr + exit code. File-based capture works
 
 Detects TUI vs shell. Warns before sending text into vim/claude instead of a shell prompt. Non-blocking by default.
 
-### MCP Server — Native Claude Code Integration
+### MCP Server — Native Claude Code Integration (project-local)
 <p align="center">
   <img src="https://raw.githubusercontent.com/neunaha/claws/main/docs/images/cap-mcp.png" alt="MCP Server" width="720">
 </p>
 
-Register once, every Claude Code session gets 8 native terminal tools. The installer does this automatically.
+As of v0.4, every project you install into gets its own `.mcp.json` pointing at a vendored `mcp_server.js` under `.claws-bin/`. Each project's Claws setup is independent — customize per-project, commit with the repo, or gitignore it. The installer handles this automatically.
 
 ```json
+// <project>/.mcp.json
 {
   "mcpServers": {
     "claws": {
       "command": "node",
-      "args": ["/Users/YOU/.claws-src/mcp_server.js"]
+      "args": ["./.claws-bin/mcp_server.js"],
+      "env": { "CLAWS_SOCKET": ".claws/claws.sock" }
     }
   }
 }
@@ -171,12 +176,26 @@ Register once, every Claude Code session gets 8 native terminal tools. The insta
 
 **Tools:** `claws_list` · `claws_create` · `claws_send` · `claws_exec` · `claws_read_log` · `claws_poll` · `claws_close` · `claws_worker`
 
-### AI Worker Orchestration
+### AI Worker Orchestration (blocking lifecycle)
 <p align="center">
   <img src="https://raw.githubusercontent.com/neunaha/claws/main/docs/images/ai-orchestration.png" alt="AI Orchestration" width="720">
 </p>
 
-`claws_worker` creates a visible terminal, launches Claude Code with full permissions, sends a mission. One tool call = full autonomous worker that the user watches in real time.
+`claws_worker` is a **single blocking tool call that runs the full worker lifecycle**: spawn a wrapped terminal → launch Claude Code with full permissions → detect boot → send mission → poll the capture buffer for `MISSION_COMPLETE` (or a custom marker) → harvest the last N lines → auto-close the terminal → return a structured result.
+
+```json
+{
+  "name": "claws_worker",
+  "arguments": {
+    "name": "refactor-auth",
+    "mission": "Refactor auth.ts to use bcrypt. Write MISSION_COMPLETE when done.",
+    "timeout_ms": 900000,
+    "harvest_lines": 300
+  }
+}
+```
+
+Returns `{ status: "completed" | "failed" | "timeout", terminal_id, duration_ms, marker_line, harvest, cleaned_up }`. No manual polling, no manual cleanup. Pass `detach: true` to keep the old fire-and-forget behavior.
 
 ### Cross-Device Control (planned)
 <p align="center">
@@ -192,20 +211,36 @@ ssh -L 9999:/remote/.claws/claws.sock user@remote
 
 ## What Gets Installed
 
-The installer does everything in one command. Here's exactly what lands on your machine:
+The installer writes files in **two scopes**: the machine (once) and the project you ran it in (per-project, re-run for each project you want Claws in).
+
+### Machine-level (written once, shared by all projects)
 
 | What | Where | Purpose |
 |---|---|---|
-| VS Code extension | `~/.vscode/extensions/neunaha.claws-0.1.0` | Socket server + terminal control |
-| MCP server | `~/.claws-src/mcp_server.js` | 8 native Claude Code tools |
-| Behavior rule | `~/.claude/rules/claws-default-behavior.md` | Claude prefers visible terminals |
-| Orchestration engine | `~/.claude/skills/claws-orchestration-engine/` | 7 patterns + lifecycle protocol |
-| Prompt templates | `~/.claude/skills/claws-prompt-templates/` | 7 mission templates |
-| 17 slash commands | `~/.claude/commands/claws*.md` | `/claws`, `/claws-do`, `/claws-go`, etc. |
-| Shell hook | `~/.zshrc` or `~/.bashrc` | CLAWS banner + shell commands |
-| Terminal wrapper | `~/.claws-src/scripts/terminal-wrapper.sh` | `script(1)` for pty capture |
+| Cloned source | `~/.claws-src/` | Full repo clone — used by `/claws-update` |
+| VS Code extension | `~/.vscode/extensions/neunaha.claws-0.4.0` | Symlink → `~/.claws-src/extension` |
+| Extension bundle | `~/.claws-src/extension/dist/extension.js` | Built from TypeScript on install |
+| Shell hook | `~/.zshrc`, `~/.bashrc`, `~/.bash_profile`, `~/.config/fish/conf.d/claws.fish` | CLAWS banner + `claws-*` shell commands |
 
-**To uninstall**: remove `~/.claws-src`, the extension symlink, and the shell hook line from your rc file.
+### Project-level (written into the project you installed from)
+
+| What | Where | Purpose |
+|---|---|---|
+| MCP registration | `<project>/.mcp.json` | Registers Claws MCP for this project |
+| Self-contained MCP | `<project>/.claws-bin/mcp_server.js` | Vendored copy — relative-path registration |
+| Slash commands | `<project>/.claude/commands/claws-*.md` | 19 commands: `/claws`, `/claws-do`, `/claws-go`, `/claws-worker`, `/claws-fleet`, `/claws-fix`, `/claws-update`, … |
+| Behavior rule | `<project>/.claude/rules/claws-default-behavior.md` | Claude prefers visible terminals in this project |
+| Orchestration skill | `<project>/.claude/skills/claws-orchestration-engine/` | 7 patterns + lifecycle protocol |
+| Prompt templates | `<project>/.claude/skills/claws-prompt-templates/` | 7 mission templates |
+| Dynamic CLAUDE.md block | `<project>/CLAUDE.md` (fenced `<!-- CLAWS:BEGIN -->` … `<!-- CLAWS:END -->`) | Tool list + operating principles (generated at install time) |
+
+### Opt-in: global install
+
+Set `CLAWS_GLOBAL_CONFIG=1` to mirror the per-project config into `~/.claude/`. Set `CLAWS_GLOBAL_MCP=1` to also register the MCP globally in `~/.claude/settings.json`. Both default to off.
+
+### Uninstall
+
+Machine-wide: `rm -rf ~/.claws-src`, remove the extension symlink, remove the shell-hook line. Project-level: `rm -rf .claws-bin .claude/commands/claws-*.md .claude/rules/claws-default-behavior.md .claude/skills/claws-* .mcp.json` and delete the fenced block from `CLAUDE.md`.
 
 ---
 
@@ -231,9 +266,9 @@ Claws was designed for and tested with Claude Opus — the model with the deepes
 ## Roadmap
 
 - **v0.3** ✅ Zero dependencies — Node.js only
-- **v0.4** — TypeScript rewrite, VS Code Marketplace publish
-- **v0.5** — WebSocket transport, cross-device control
-- **v0.6** — Team config, device discovery, web dashboard
+- **v0.4** ✅ TypeScript rewrite, Pseudoterminal (no glitching), blocking `claws_worker`, project-local install, dynamic CLAUDE.md, automatic legacy migration
+- **v0.5** — State persistence across VS Code reload, `claws_ping` health check, WebSocket transport, VS Code Marketplace publish
+- **v0.6** — Cross-device control, team config, device discovery, web dashboard
 
 ---
 
