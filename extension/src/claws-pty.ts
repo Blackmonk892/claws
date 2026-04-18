@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
 import * as os from 'os';
+import * as path from 'path';
 import { CaptureStore } from './capture-store';
 
 interface NodePtyModule {
@@ -26,48 +27,92 @@ interface NodePtyProcess {
   kill(signal?: string): void;
 }
 
+interface LoadAttempt {
+  path: string;
+  message: string;
+  code?: string;
+}
+
 let nodePtyCache: NodePtyModule | null = null;
-let lastLoadError: { message: string; code?: string; stack?: string } | null = null;
+let loadedFromPath: string | null = null;
+let lastLoadError: { message: string; code?: string; stack?: string; attempts: LoadAttempt[] } | null = null;
+
+// Resolution order for node-pty. We always prefer the bundled copy at
+// <extension>/native/node-pty because it ships with the VSIX — it works even
+// when node_modules/ is stripped (which is what .vscodeignore does). Standard
+// resolution is kept as a fallback so `npm link`'d dev installs still work.
+function resolveCandidates(): string[] {
+  // __dirname is <extension>/dist at runtime (esbuild output) or
+  // <extension>/out in ts-node/dev. Either way, ../native/node-pty lands on
+  // the bundled copy.
+  const bundled = path.join(__dirname, '..', 'native', 'node-pty');
+  return [bundled, 'node-pty'];
+}
 
 // Load node-pty. We cache ONLY successful loads — failures are retried on
 // the next spawn so that if node-pty appears on disk mid-session (e.g. after
 // /claws-update compiles it), new terminals pick it up without a VS Code
-// reload. The full error from a failed require() is captured for the
+// reload. The full error from EACH failed require() is captured for the
 // diagnostic surface (exposed via loadNodePtyStatus() for the Health Check
 // command).
 function loadNodePty(logger?: (msg: string) => void): NodePtyModule | null {
   if (nodePtyCache) return nodePtyCache;
-  try {
-    nodePtyCache = require('node-pty') as NodePtyModule;
-    lastLoadError = null;
-    logger?.('[node-pty] loaded successfully');
-    return nodePtyCache;
-  } catch (err: unknown) {
-    const e = err as NodeJS.ErrnoException;
-    lastLoadError = {
-      message: e.message || String(err),
-      code: e.code,
-      stack: e.stack,
-    };
-    if (logger) {
-      logger(`[node-pty] load FAILED: ${lastLoadError.message}`);
-      if (lastLoadError.code) logger(`[node-pty] error code: ${lastLoadError.code}`);
-      logger(`[node-pty] this causes wrapped terminals to fall back to pipe-mode.`);
-      logger(`[node-pty] fix: run 'Claws: Rebuild Native PTY' from the command palette`);
+
+  const attempts: LoadAttempt[] = [];
+  for (const candidate of resolveCandidates()) {
+    try {
+      logger?.(`[node-pty] trying ${candidate}`);
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const mod = require(candidate) as NodePtyModule;
+      nodePtyCache = mod;
+      loadedFromPath = candidate;
+      lastLoadError = null;
+      logger?.(`[node-pty] loaded successfully from ${candidate}`);
+      return nodePtyCache;
+    } catch (err: unknown) {
+      const e = err as NodeJS.ErrnoException;
+      const attempt: LoadAttempt = {
+        path: candidate,
+        message: e.message || String(err),
+        code: e.code,
+      };
+      attempts.push(attempt);
+      logger?.(`[node-pty]   FAILED: ${attempt.message}${attempt.code ? ` (code=${attempt.code})` : ''}`);
     }
-    return null;
   }
+
+  const primary = attempts[0] ?? { path: '(none)', message: 'no candidates' };
+  lastLoadError = {
+    message: primary.message,
+    code: primary.code,
+    attempts,
+    stack: attempts.map((a) => `  ${a.path}: ${a.message}`).join('\n'),
+  };
+  if (logger) {
+    logger(`[node-pty] load FAILED — tried ${attempts.length} candidate(s):`);
+    for (const a of attempts) {
+      logger(`[node-pty]   ${a.path}: ${a.message}${a.code ? ` (${a.code})` : ''}`);
+    }
+    logger(`[node-pty] this causes wrapped terminals to fall back to pipe-mode.`);
+    logger(`[node-pty] fix: run 'Claws: Rebuild Native PTY' from the command palette`);
+  }
+  return null;
 }
 
 export function loadNodePtyStatus(): {
   loaded: boolean;
-  error?: { message: string; code?: string };
+  loadedFrom?: string;
+  error?: { message: string; code?: string; attempts: LoadAttempt[] };
 } {
-  if (nodePtyCache) return { loaded: true };
+  if (nodePtyCache) return { loaded: true, loadedFrom: loadedFromPath ?? undefined };
   if (lastLoadError) {
     return {
       loaded: false,
-      error: { message: lastLoadError.message, code: lastLoadError.code },
+      error: {
+        message: lastLoadError.message,
+        code: lastLoadError.code,
+        attempts: lastLoadError.attempts,
+      },
     };
   }
   return { loaded: false };

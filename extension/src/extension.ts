@@ -318,10 +318,17 @@ function runHealthCheck(diag: DiagContext): void {
   const npty = loadNodePtyStatus();
   if (npty.loaded) {
     logger('node-pty:       ✓ LOADED — wrapped terminals will use real pty (clean TUI rendering)');
+    if (npty.loadedFrom) logger(`  source:       ${npty.loadedFrom}`);
   } else if (npty.error) {
     logger('node-pty:       ✗ NOT LOADED — wrapped terminals will use pipe-mode (degraded TUIs)');
     logger(`  error:        ${npty.error.message}`);
     if (npty.error.code) logger(`  code:         ${npty.error.code}`);
+    if (npty.error.attempts && npty.error.attempts.length) {
+      logger('  attempts:');
+      for (const a of npty.error.attempts) {
+        logger(`    - ${a.path}: ${a.message}${a.code ? ` (${a.code})` : ''}`);
+      }
+    }
     logger('  fix:          run "Claws: Rebuild Native PTY" from the command palette');
   } else {
     logger('node-pty:       · not attempted yet (no wrapped terminal spawned this session)');
@@ -329,24 +336,58 @@ function runHealthCheck(diag: DiagContext): void {
   }
   logger('');
 
-  // Check that node-pty binary is on disk at expected paths
-  const candidates = [
-    path.join(diag.extensionPath, 'native', 'node-pty', 'build', 'Release', 'pty.node'),
-    path.join(diag.extensionPath, 'node_modules', 'node-pty', 'build', 'Release', 'pty.node'),
-  ];
-  const fs = require('fs');
+  // Check that node-pty binary is on disk at expected paths. The bundled copy
+  // under native/ is canonical; node_modules/ is dev-only.
+  const bundledPath = path.join(diag.extensionPath, 'native', 'node-pty', 'build', 'Release', 'pty.node');
+  const nodeModulesPath = path.join(diag.extensionPath, 'node_modules', 'node-pty', 'build', 'Release', 'pty.node');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const fs = require('fs') as typeof import('fs');
   logger('pty.node binary search:');
   let found = false;
-  for (const p of candidates) {
-    if (fs.existsSync(p)) {
-      const stat = fs.statSync(p);
-      logger(`  ✓ ${p}  (${stat.size} bytes)`);
-      found = true;
-    } else {
-      logger(`  · ${p}  (not found)`);
-    }
+  const bundledExists = fs.existsSync(bundledPath);
+  if (bundledExists) {
+    const stat = fs.statSync(bundledPath);
+    logger(`  ✓ ${bundledPath}  (${stat.size} bytes)  [bundled: YES]`);
+    found = true;
+  } else {
+    logger(`  · ${bundledPath}  (not found)  [bundled: NO]`);
+  }
+  if (fs.existsSync(nodeModulesPath)) {
+    const stat = fs.statSync(nodeModulesPath);
+    logger(`  ✓ ${nodeModulesPath}  (${stat.size} bytes)  [dev-only]`);
+    found = true;
+  } else {
+    logger(`  · ${nodeModulesPath}  (not found)`);
   }
   if (!found) logger('  ✗ no pty.node on disk — run "Claws: Rebuild Native PTY"');
+
+  // Surface the metadata file written by scripts/bundle-native.mjs so we can
+  // see which Electron ABI this binary was built for.
+  const metadataPath = path.join(diag.extensionPath, 'native', '.metadata.json');
+  if (fs.existsSync(metadataPath)) {
+    try {
+      const raw = fs.readFileSync(metadataPath, 'utf8');
+      const meta = JSON.parse(raw) as {
+        electronVersion?: string;
+        nodePtyVersion?: string;
+        platform?: string;
+        arch?: string;
+        bundledAt?: string;
+      };
+      logger('');
+      logger('native bundle metadata:');
+      if (meta.electronVersion) logger(`  electron:     ${meta.electronVersion}`);
+      if (meta.nodePtyVersion) logger(`  node-pty:     ${meta.nodePtyVersion}`);
+      if (meta.platform || meta.arch) logger(`  platform:     ${meta.platform ?? '?'}-${meta.arch ?? '?'}`);
+      if (meta.bundledAt) logger(`  bundled at:   ${meta.bundledAt}`);
+    } catch (err) {
+      logger(`  metadata read failed: ${(err as Error).message}`);
+    }
+  } else {
+    logger('');
+    logger('native bundle metadata: (none — run `npm run build` to generate)');
+  }
+
   logger('');
   logger('─────────────────────────────────────────────');
 }
