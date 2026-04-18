@@ -82,6 +82,39 @@ function detectElectronVersion() {
     }
   }
 
+  if (process.platform === 'linux') {
+    // VS Code on Linux bundles its own electron binary. Try known install paths.
+    const electronCandidates = [
+      '/usr/share/code/electron',
+      '/usr/lib/code/electron',
+      '/opt/visual-studio-code/electron',
+      '/snap/code/current/electron',
+      '/snap/code/current/usr/share/code/electron',
+    ];
+    for (const ep of electronCandidates) {
+      if (!existsSync(ep)) continue;
+      try {
+        const v = execFileSync(ep, ['--version'], { encoding: 'utf8' }).trim().replace(/^v/, '');
+        if (v && /^\d+\.\d+\.\d+$/.test(v)) {
+          log(`detected Electron ${v} from ${ep}`);
+          return { version: v, source: ep };
+        }
+      } catch {
+        // try next candidate
+      }
+    }
+    // Fallback: ask the `electron` CLI if it's on PATH (unlikely but possible)
+    try {
+      const v = execFileSync('electron', ['--version'], { encoding: 'utf8' }).trim().replace(/^v/, '');
+      if (v && /^\d+\.\d+\.\d+$/.test(v)) {
+        log(`detected Electron ${v} from electron CLI`);
+        return { version: v, source: 'electron-cli' };
+      }
+    } catch { /* not available */ }
+    log(`WARNING: could not detect VS Code Electron version on Linux.`);
+    log(`Set CLAWS_ELECTRON_VERSION=<version> to override. Falling back to ${FALLBACK_ELECTRON}.`);
+  }
+
   log(`no Electron install found; falling back to ${FALLBACK_ELECTRON}`);
   return { version: FALLBACK_ELECTRON, source: 'fallback' };
 }

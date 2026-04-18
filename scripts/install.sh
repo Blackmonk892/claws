@@ -227,8 +227,20 @@ echo ""
 step "Fetching Claws source"
 if [ -d "$INSTALL_DIR/.git" ]; then
   info "updating existing clone at $INSTALL_DIR"
-  ( cd "$INSTALL_DIR" && git pull --ff-only --quiet origin main ) || warn "git pull failed; using existing tree"
-  ok "updated $INSTALL_DIR"
+  PREV_SHA="$(cd "$INSTALL_DIR" && git rev-parse HEAD 2>/dev/null || echo 'unknown')"
+  if ( cd "$INSTALL_DIR" && git fetch --quiet origin main 2>/dev/null \
+       && git reset --hard --quiet origin/main ); then
+    NEW_SHA="$(cd "$INSTALL_DIR" && git rev-parse HEAD 2>/dev/null || echo 'unknown')"
+    if [ "$PREV_SHA" = "$NEW_SHA" ]; then
+      ok "already at origin/main (${NEW_SHA:0:7})"
+    else
+      ok "updated ${PREV_SHA:0:7} → ${NEW_SHA:0:7}"
+    fi
+  else
+    bad "failed to update $INSTALL_DIR (network error or corrupted clone)."
+    bad "Fix: rm -rf $INSTALL_DIR && re-run this installer."
+    exit 1
+  fi
 elif [ -d "$INSTALL_DIR" ]; then
   die "$INSTALL_DIR exists but is not a git clone — remove it or set CLAWS_DIR to a different path"
 else
@@ -315,6 +327,7 @@ if command -v npm &>/dev/null && [ -f "$INSTALL_DIR/extension/package.json" ]; t
          && npm install --no-audit --no-fund --loglevel=error \
          && npm run build ); then
       echo "$CURRENT_SHA" > "$BUILD_SHA_FILE" 2>/dev/null || true
+      BUILD_OK=1
     else
       bad "extension build failed — see $CLAWS_LOG for the full compile log."
       bad "Common causes: Xcode CLT not fully installed, Python 3 missing, offline during @electron/rebuild's Electron headers fetch."
@@ -322,6 +335,7 @@ if command -v npm &>/dev/null && [ -f "$INSTALL_DIR/extension/package.json" ]; t
       exit 1
     fi
   else
+    BUILD_OK=1
     ok "extension bundle up to date (SHA ${CURRENT_SHA:0:7}, $(wc -c < "$BUNDLE" | tr -d ' ') bytes)"
   fi
 
@@ -350,8 +364,8 @@ fi
 # reports an older version, we know the working tree is stale — that was
 # the v0.5.1 bug where users saw "v0.4.0 — installed" because their
 # ~/.claws-src/ hadn't caught up with main.
-EXT_VERSION="0.5.5"
-EXPECTED_MIN_VERSION="0.5.5"
+EXT_VERSION="0.5.6"
+EXPECTED_MIN_VERSION="0.5.6"
 if command -v node &>/dev/null && [ -f "$INSTALL_DIR/extension/package.json" ]; then
   EXT_VERSION=$(node -e "try{console.log(require('$INSTALL_DIR/extension/package.json').version||'$EXPECTED_MIN_VERSION')}catch(e){console.log('$EXPECTED_MIN_VERSION')}" 2>/dev/null || echo "$EXPECTED_MIN_VERSION")
 fi
@@ -363,9 +377,9 @@ if [ "$EXT_VERSION" != "$EXPECTED_MIN_VERSION" ]; then
     for (let i=0;i<3;i++){ if((a[i]||0)<(b[i]||0)) process.exit(1); if((a[i]||0)>(b[i]||0)) process.exit(0); }
     process.exit(0);
   " "$EXT_VERSION" "$EXPECTED_MIN_VERSION" 2>/dev/null; then
-    warn "extension version $EXT_VERSION < expected $EXPECTED_MIN_VERSION"
-    info "your $INSTALL_DIR may be stale — git fetch may have failed silently"
-    info "recover: rm -rf $INSTALL_DIR && re-run this installer"
+    bad "extension version $EXT_VERSION < expected $EXPECTED_MIN_VERSION — clone is stale."
+    bad "Fix: rm -rf $INSTALL_DIR && re-run this installer."
+    exit 1
   fi
 fi
 
