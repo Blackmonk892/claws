@@ -111,12 +111,116 @@ detect_ext_dir() {
 EXT_DIR="$(detect_ext_dir)"
 
 # ─── Preflight: dependencies ───────────────────────────────────────────────
+# Every dependency the installer or the extension's build chain touches is
+# checked here with a specific install command for the ones that are missing.
+# Fatal checks (die) are things Claws literally cannot work without. Warning
+# checks are things that degrade specific features.
 echo "Checking dependencies..."
-if command -v git &>/dev/null; then ok "git ($(git --version | awk '{print $3}'))"; else die "git not found — install with: xcode-select --install (macOS) or sudo apt install git"; fi
-if command -v node &>/dev/null; then ok "node ($(node --version))"; else warn "node not found — MCP server + extension build will not work. Install Node 18+ and re-run."; fi
-if command -v npm &>/dev/null; then ok "npm ($(npm --version))"; else warn "npm not found — the extension bundle cannot be built. Legacy JS fallback will be used."; fi
-info "Platform: $PLATFORM"
+
+# ── Required: git ──────────────────────────────────────────────────────────
+if command -v git &>/dev/null; then
+  ok "git ($(git --version | awk '{print $3}'))"
+else
+  case "$PLATFORM" in
+    Darwin) die "git not found — install with: xcode-select --install" ;;
+    Linux)  die "git not found — install with: sudo apt install git  (or your distro's package manager)" ;;
+    *)      die "git not found — install from https://git-scm.com/" ;;
+  esac
+fi
+
+# ── Required: Node.js 18+ (for MCP server + extension build) ───────────────
+if ! command -v node &>/dev/null; then
+  case "$PLATFORM" in
+    Darwin) die "node not found — install with: brew install node  (or from https://nodejs.org/)" ;;
+    Linux)  die "node not found — install with: sudo apt install nodejs  (or use nvm: https://github.com/nvm-sh/nvm)" ;;
+    *)      die "node not found — install from https://nodejs.org/" ;;
+  esac
+fi
+NODE_MAJOR=$(node -e "console.log(process.versions.node.split('.')[0])" 2>/dev/null || echo "0")
+if [ "$NODE_MAJOR" -lt 18 ] 2>/dev/null; then
+  die "node $(node --version) is too old — Claws requires Node 18+. Upgrade via nvm or your package manager."
+fi
+ok "node ($(node --version))"
+
+# ── Required: npm (bundled with node, but verify separately) ───────────────
+if ! command -v npm &>/dev/null; then
+  die "npm not found — should ship with Node. Reinstall Node or install npm separately."
+fi
+ok "npm ($(npm --version))"
+
+# ── Optional but strongly recommended: C++ toolchain for native modules ────
+# node-pty (optional dep) compiles C++ when no prebuilt binary matches the
+# user's Node version. Without it, wrapped terminals fall back to pipe-mode
+# which doesn't render TUIs correctly. Warn proactively so the user can fix
+# it BEFORE npm install rather than discovering the silent failure later.
+TOOLCHAIN_OK=1
+case "$PLATFORM" in
+  Darwin)
+    if xcode-select -p &>/dev/null; then
+      ok "Xcode Command Line Tools ($(xcode-select -p))"
+    else
+      warn "Xcode Command Line Tools not installed"
+      info "install with: xcode-select --install"
+      info "without this, wrapped terminals will use degraded pipe-mode (TUIs render poorly)"
+      TOOLCHAIN_OK=0
+    fi
+    ;;
+  Linux)
+    if command -v g++ &>/dev/null && command -v make &>/dev/null; then
+      ok "C++ toolchain (g++ $(g++ -dumpversion 2>/dev/null), make $(make --version | head -1 | awk '{print $3}'))"
+    else
+      warn "C++ toolchain missing — wrapped terminals may fall back to pipe-mode"
+      info "install with: sudo apt install build-essential  (Debian/Ubuntu)"
+      info "          or: sudo dnf install gcc-c++ make    (Fedora/RHEL)"
+      TOOLCHAIN_OK=0
+    fi
+    ;;
+esac
+
+# ── Optional: python3 for node-gyp ─────────────────────────────────────────
+# node-gyp spawns python3 to run its gyp files. Missing python3 means
+# node-pty source build will fail even if the C++ toolchain is present.
+if command -v python3 &>/dev/null; then
+  ok "python3 ($(python3 --version 2>&1 | awk '{print $2}'))"
+elif command -v python &>/dev/null && python --version 2>&1 | grep -q "Python 3"; then
+  ok "python ($(python --version 2>&1 | awk '{print $2}'))"
+else
+  warn "python3 not found — needed by node-gyp for native module compilation"
+  case "$PLATFORM" in
+    Darwin) info "install with: brew install python3  (or xcode-select --install provides it)" ;;
+    Linux)  info "install with: sudo apt install python3" ;;
+  esac
+  TOOLCHAIN_OK=0
+fi
+
+# ── Optional: bundled VS Code CLI (for VSIX install in step 2c) ────────────
+# We don't fail if absent — the installer falls back to a symlink. But log
+# what we'd use so /claws-report shows the editor state.
+FOUND_EDITOR_CLIS=()
+for pair in \
+  "code:/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" \
+  "code-insiders:/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/bin/code-insiders" \
+  "cursor:/Applications/Cursor.app/Contents/Resources/app/bin/cursor" \
+  "windsurf:/Applications/Windsurf.app/Contents/Resources/app/bin/windsurf"; do
+  label="${pair%%:*}"
+  bundled="${pair#*:}"
+  if command -v "$label" &>/dev/null; then
+    FOUND_EDITOR_CLIS+=("$label (PATH)")
+  elif [ -x "$bundled" ]; then
+    FOUND_EDITOR_CLIS+=("$label (bundled)")
+  fi
+done
+if [ "${#FOUND_EDITOR_CLIS[@]}" -gt 0 ]; then
+  ok "editor CLI(s): ${FOUND_EDITOR_CLIS[*]}"
+else
+  warn "no editor CLI detected — extension will install via symlink fallback"
+  info "to enable VSIX install on macOS: open VS Code and run 'Shell Command: Install code command in PATH'"
+fi
+
+info "Platform: $PLATFORM $(uname -r)"
+info "Shell: $SHELL ($BASH_VERSION)"
 info "Install log: $CLAWS_LOG"
+[ "$TOOLCHAIN_OK" = "0" ] && warn "toolchain issues above — install will still run, but node-pty may not compile"
 echo ""
 
 # ─── Step 1: Clone or update ───────────────────────────────────────────────

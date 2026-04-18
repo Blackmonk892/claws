@@ -29,6 +29,50 @@ fail()   { printf "  ${C_RED}✗${C_RESET} %s\n" "$*"; }
 FIXED=0
 ISSUES=0
 
+# ─── 0. System dependencies ────────────────────────────────────────────────
+# Fast precheck so users see a clear answer when something upstream broke
+# (e.g. they nvm'd to an old Node, uninstalled Xcode CLT, etc).
+PLATFORM="$(uname -s)"
+check "System dependencies"
+if command -v git &>/dev/null; then ok "git ($(git --version | awk '{print $3}'))"
+else fail "git not found — install: xcode-select --install (macOS) or sudo apt install git"; ISSUES=$((ISSUES+1)); fi
+
+if command -v node &>/dev/null; then
+  NODE_MAJOR=$(node -e "console.log(process.versions.node.split('.')[0])" 2>/dev/null || echo "0")
+  if [ "$NODE_MAJOR" -lt 18 ] 2>/dev/null; then
+    fail "node $(node --version) too old — Claws requires Node 18+"; ISSUES=$((ISSUES+1))
+  else
+    ok "node ($(node --version))"
+  fi
+else
+  fail "node not found — required for MCP server"; ISSUES=$((ISSUES+1))
+fi
+
+if command -v npm &>/dev/null; then ok "npm ($(npm --version))"
+else fail "npm not found — required for extension build"; ISSUES=$((ISSUES+1)); fi
+
+if command -v python3 &>/dev/null; then ok "python3 ($(python3 --version 2>&1 | awk '{print $2}'))"
+else
+  # python3 is only actually needed when node-pty needs to compile from
+  # source, which only happens if no prebuild matches the current Node
+  # version. Inform but don't count as a failure.
+  printf "  ${C_YELLOW}!${C_RESET} python3 not found — only needed if node-pty needs source compile\n"
+fi
+
+case "$PLATFORM" in
+  Darwin)
+    if xcode-select -p &>/dev/null; then ok "Xcode Command Line Tools"
+    else
+      printf "  ${C_YELLOW}!${C_RESET} Xcode CLT missing — needed only if node-pty must compile (run: xcode-select --install)\n"
+    fi
+    ;;
+  Linux)
+    if command -v g++ &>/dev/null; then ok "g++ ($(g++ -dumpversion 2>/dev/null))"
+    else printf "  ${C_YELLOW}!${C_RESET} g++ missing — needed only for node-pty source compile (run: sudo apt install build-essential)\n"
+    fi
+    ;;
+esac
+
 # ─── 1. Source clone ───────────────────────────────────────────────────────
 check "Claws source clone at $INSTALL_DIR"
 if [ -d "$INSTALL_DIR/.git" ]; then

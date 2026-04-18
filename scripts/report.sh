@@ -31,13 +31,47 @@ section() { echo "" >> "$REPORT"; echo "═════ $1 ═════" >> "
   echo "Install:   $INSTALL_DIR"
 } > "$REPORT"
 
-section "System"
-say "OS:        $(uname -a)"
-say "Shell:     $SHELL ($(basename "$SHELL"))"
-say "Node:      $(command -v node && node --version 2>/dev/null || echo 'NOT INSTALLED')"
-say "npm:       $(command -v npm && npm --version 2>/dev/null || echo 'NOT INSTALLED')"
-say "git:       $(command -v git && git --version 2>/dev/null || echo 'NOT INSTALLED')"
-say "bash:      $BASH_VERSION"
+section "System dependencies"
+PLATFORM="$(uname -s)"
+say "OS:            $(uname -a)"
+say "Shell:         $SHELL ($(basename "$SHELL"))"
+say "bash:          $BASH_VERSION"
+say ""
+say "git:           $(command -v git 2>/dev/null || echo '—') $(git --version 2>/dev/null || echo 'NOT INSTALLED')"
+say "node:          $(command -v node 2>/dev/null || echo '—') $(node --version 2>/dev/null || echo 'NOT INSTALLED')"
+if command -v node &>/dev/null; then
+  nm=$(node -e "console.log(process.versions.node.split('.')[0])" 2>/dev/null)
+  say "node major:    $nm$([ "$nm" -lt 18 ] 2>/dev/null && echo ' (TOO OLD — requires 18+)')"
+fi
+say "npm:           $(command -v npm 2>/dev/null || echo '—') $(npm --version 2>/dev/null || echo 'NOT INSTALLED')"
+say "python3:       $(command -v python3 2>/dev/null || echo '—') $(python3 --version 2>&1 | awk '{print $2}' || echo 'NOT INSTALLED')"
+say "npx:           $(command -v npx 2>/dev/null || echo '—')"
+case "$PLATFORM" in
+  Darwin)
+    say "xcode-select:  $(xcode-select -p 2>/dev/null || echo 'NOT INSTALLED')"
+    ;;
+  Linux)
+    say "g++:           $(command -v g++ 2>/dev/null || echo '—') $(g++ -dumpversion 2>/dev/null || echo '')"
+    say "make:          $(command -v make 2>/dev/null || echo '—')"
+    ;;
+esac
+
+section "Editor CLIs"
+for pair in \
+  "code:/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" \
+  "code-insiders:/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/bin/code-insiders" \
+  "cursor:/Applications/Cursor.app/Contents/Resources/app/bin/cursor" \
+  "windsurf:/Applications/Windsurf.app/Contents/Resources/app/bin/windsurf"; do
+  label="${pair%%:*}"
+  bundled="${pair#*:}"
+  if command -v "$label" &>/dev/null; then
+    say "  ✓ $label  ($(command -v "$label")) — $("$label" --version 2>&1 | head -1)"
+  elif [ -x "$bundled" ]; then
+    say "  ✓ $label  (bundled: $bundled) — $("$bundled" --version 2>&1 | head -1)"
+  else
+    say "  — $label  not found"
+  fi
+done
 
 section "Claws source clone"
 if [ -d "$INSTALL_DIR/.git" ]; then
