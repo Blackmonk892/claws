@@ -67,6 +67,18 @@
       {
         "command": "claws.listTerminals",
         "title": "Claws: List Terminals"
+      },
+      {
+        "command": "claws.healthCheck",
+        "title": "Claws: Health Check"
+      },
+      {
+        "command": "claws.showLog",
+        "title": "Claws: Show Log"
+      },
+      {
+        "command": "claws.rebuildPty",
+        "title": "Claws: Rebuild Native PTY"
       }
     ],
     "terminal": {

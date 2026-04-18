@@ -27,22 +27,50 @@ interface NodePtyProcess {
 }
 
 let nodePtyCache: NodePtyModule | null = null;
+let lastLoadError: { message: string; code?: string; stack?: string } | null = null;
 
-// Load node-pty, caching only successful loads. If the binary is missing or
-// fails to load, we return null — but we DON'T cache that null, so the next
-// terminal spawn retries. This matters when /claws-update compiles the native
-// binary mid-session: new terminal spawns pick it up without needing a full
-// VS Code reload. (A fresh extension activation still re-evaluates from
-// scratch; this only affects the case where the extension has already loaded
-// and the binary appears on disk afterward.)
-function loadNodePty(): NodePtyModule | null {
+// Load node-pty. We cache ONLY successful loads — failures are retried on
+// the next spawn so that if node-pty appears on disk mid-session (e.g. after
+// /claws-update compiles it), new terminals pick it up without a VS Code
+// reload. The full error from a failed require() is captured for the
+// diagnostic surface (exposed via loadNodePtyStatus() for the Health Check
+// command).
+function loadNodePty(logger?: (msg: string) => void): NodePtyModule | null {
   if (nodePtyCache) return nodePtyCache;
   try {
     nodePtyCache = require('node-pty') as NodePtyModule;
+    lastLoadError = null;
+    logger?.('[node-pty] loaded successfully');
     return nodePtyCache;
-  } catch {
+  } catch (err: unknown) {
+    const e = err as NodeJS.ErrnoException;
+    lastLoadError = {
+      message: e.message || String(err),
+      code: e.code,
+      stack: e.stack,
+    };
+    if (logger) {
+      logger(`[node-pty] load FAILED: ${lastLoadError.message}`);
+      if (lastLoadError.code) logger(`[node-pty] error code: ${lastLoadError.code}`);
+      logger(`[node-pty] this causes wrapped terminals to fall back to pipe-mode.`);
+      logger(`[node-pty] fix: run 'Claws: Rebuild Native PTY' from the command palette`);
+    }
     return null;
   }
+}
+
+export function loadNodePtyStatus(): {
+  loaded: boolean;
+  error?: { message: string; code?: string };
+} {
+  if (nodePtyCache) return { loaded: true };
+  if (lastLoadError) {
+    return {
+      loaded: false,
+      error: { message: lastLoadError.message, code: lastLoadError.code },
+    };
+  }
+  return { loaded: false };
 }
 
 export interface ClawsPtyOptions {
@@ -87,29 +115,35 @@ export class ClawsPty implements vscode.Pseudoterminal {
     const cols = initialDimensions?.columns ?? 80;
     const rows = initialDimensions?.rows ?? 24;
 
-    const nodePty = loadNodePty();
+    const nodePty = loadNodePty(this.opts.logger);
     if (nodePty) {
       try {
         this.ptyProc = nodePty.spawn(shell, args, { cols, rows, cwd, env, name: 'xterm-256color' });
         this.ptyProc.onData((data) => this.handleOutput(data));
         this.ptyProc.onExit(({ exitCode }) => this.handleExit(exitCode));
-        this.opts.logger(`[claws-pty ${this.opts.terminalId}] node-pty spawned ${shell} pid=${this.ptyProc.pid}`);
+        this.opts.logger(`[claws-pty ${this.opts.terminalId}] node-pty spawned ${shell} pid=${this.ptyProc.pid} (real pty)`);
         return;
       } catch (err) {
-        this.opts.logger(`[claws-pty ${this.opts.terminalId}] node-pty failed: ${(err as Error).message}. Falling back to pipes.`);
+        this.opts.logger(`[claws-pty ${this.opts.terminalId}] node-pty spawn failed: ${(err as Error).message}. Falling back to child_process pipe-mode.`);
         this.ptyProc = null;
       }
     }
 
+    // Pipe-mode fallback. Log loudly to the Output channel AND emit the
+    // yellow banner into the terminal so the user sees it both ways.
     try {
       this.childProc = spawn(shell, args, { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] });
       this.childProc.stdout.on('data', (d: Buffer) => this.handleOutput(d.toString('utf8')));
       this.childProc.stderr.on('data', (d: Buffer) => this.handleOutput(d.toString('utf8')));
       this.childProc.on('exit', (code) => this.handleExit(code ?? 0));
+      const loadErr = lastLoadError?.message || 'unknown reason';
+      this.opts.logger(`[claws-pty ${this.opts.terminalId}] PIPE-MODE active (node-pty unavailable): ${loadErr}`);
+      this.opts.logger(`[claws-pty ${this.opts.terminalId}] TUIs will not render correctly. Run 'Claws: Health Check' for diagnostics.`);
       this.opts.logger(`[claws-pty ${this.opts.terminalId}] child_process fallback ${shell} pid=${this.childProc.pid}`);
       this.writeEmitter.fire('\x1b[33m[claws] running in pipe-mode (node-pty unavailable); TUIs may render poorly\x1b[0m\r\n');
+      this.writeEmitter.fire('\x1b[2m[claws] run "Claws: Health Check" in the command palette for why\x1b[0m\r\n');
     } catch (err) {
-      this.opts.logger(`[claws-pty ${this.opts.terminalId}] spawn failed: ${(err as Error).message}`);
+      this.opts.logger(`[claws-pty ${this.opts.terminalId}] SPAWN FAILED: ${(err as Error).message}`);
       this.writeEmitter.fire(`\x1b[31m[claws] failed to spawn shell: ${(err as Error).message}\x1b[0m\r\n`);
       this.closeEmitter.fire(1);
     }

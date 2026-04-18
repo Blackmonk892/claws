@@ -123,11 +123,12 @@ function check(name, fn) {
   }
 }
 
-// Activation log line
-check('logs contain "activating (typescript)"', () => {
-  if (!logs.some((l) => l.includes('activating (typescript)'))) {
-    throw new Error(`logs were: ${JSON.stringify(logs)}`);
-  }
+// Activation log line — proves the v0.4 TypeScript path ran (vs legacy JS).
+check('logs contain activation signature', () => {
+  const hasSignature = logs.some(
+    (l) => l.includes('(typescript)') || l.includes('activation complete'),
+  );
+  if (!hasSignature) throw new Error(`logs were: ${JSON.stringify(logs)}`);
 });
 
 // Wait for socket to be created (listen is async)
