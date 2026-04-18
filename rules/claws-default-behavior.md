@@ -1,60 +1,57 @@
-# Claws Terminal Orchestration — Default Behavior
+# Claws — Terminal Behavior Override
 
-> This rule is auto-installed by Claws. It changes how you operate terminals.
-> Remove from ~/.claude/rules/ to revert to default behavior.
+> Auto-installed by Claws. This rule changes how you use terminals in every session.
 
-## When Claws is available, use it
+## You have terminal superpowers — use them
 
-Before running any shell command via the Bash tool, check if the Claws MCP tools are available (`claws_list`, `claws_create`, `claws_exec`, etc.). If they are:
+When Claws MCP tools are available (`claws_list`, `claws_create`, `claws_exec`, etc.), your terminal behavior changes:
 
-**Use Claws terminals instead of Bash for all visible work.** The user should see what you're doing in their VS Code terminal panel — not just tool results in the chat.
+**DO**: run visible work in Claws terminals — builds, tests, deploys, servers, AI workers, refactoring, audits. The user watches it happen live in their VS Code terminal panel.
 
-### Default operating mode
+**DO**: use `claws_worker` when the user asks to "fix", "refactor", "audit", or any complex task. This spawns a Claude Code session with full permissions that the user can watch.
 
-1. **For any task that produces visible output the user should watch** (builds, tests, server starts, code generation, AI worker sessions): create a wrapped Claws terminal and run the work there. The user watches it happen live.
+**DO**: spawn parallel terminals for independent tasks. "lint + test + build" = 3 terminals, all running simultaneously.
 
-2. **For quick diagnostic commands** (checking a file, git status, reading a value): use the Bash tool directly. No need to spawn a terminal for `ls` or `cat`.
+**DO**: always create wrapped terminals (`wrapped=true`). Always close them when done.
 
-3. **For multi-step tasks**: spawn a dedicated wrapped terminal per work stream. Run each stream visibly. Monitor via `claws_read_log`. Clean up when done.
+**USE BASH DIRECTLY FOR**: quick lookups — `ls`, `cat`, `git status`, `grep`, file reads. No terminal needed.
 
-### The rule of thumb
+## Pattern matching — what the user says → what you do
 
-> If the user would benefit from watching the command run — use Claws.
-> If it's a quick lookup you'll report back — use Bash.
+"run tests" / "run the build" / "lint the code"
+→ `claws_create` wrapped → `claws_send` the command → `claws_read_log` → report → `claws_close`
 
-### Specific behaviors
+"run lint, test, and build" / "do these in parallel"
+→ 3x `claws_create` → send all 3 commands → monitor all 3 → close all → aggregate report
 
-**When the user asks to "run tests":**
-- Create a wrapped terminal: `claws_create name="tests" wrapped=true`
-- Send the test command: `claws_send id=N text="npm test"`
-- Read the result: `claws_read_log id=N`
-- Report + close: `claws_close id=N`
+"fix the bug" / "refactor this" / "audit the code" / "write tests for X"
+→ `claws_worker` with the mission → monitor via `claws_read_log` → report → close
 
-**When the user asks to "build":**
-- Same pattern: create → send → monitor → close
+"start the server" / "watch for crashes"
+→ `claws_create` wrapped → send start command → monitor → restart if crash detected
 
-**When the user asks for parallel work (lint + test + build, audit multiple things):**
-- Create N wrapped terminals, one per task
-- Fire all commands
-- Monitor all via read_log rotation
-- Close each when done
-- Report aggregated results
+"spawn a worker" / "launch claude in a terminal"
+→ `claws_worker` — auto-launches Claude Code with `--dangerously-skip-permissions`
 
-**When the user asks to run an AI worker session:**
-- Use `claws_worker name="worker-name" mission="the mission prompt"`
-- This auto-launches Claude Code with full permissions in a visible terminal
-- Monitor via `claws_read_log`
-- Close when MISSION_COMPLETE detected
+"what's running" / "show me the terminals"
+→ `claws_list` → format as dashboard
 
-**When spawning Claude Code in a terminal:**
-- ALWAYS use interactive mode: `claude --dangerously-skip-permissions`
-- NEVER use headless mode: `claude -p "..."`
-- The user must see the TUI in their terminal panel
+"clean up" / "close the workers"
+→ `claws_list` → close all worker terminals → confirm
 
-### Cleanup is mandatory
+## Terminal naming
 
-Every terminal you create via Claws MUST be closed when the work is done. Run `claws_list` at the end of any orchestration to verify no stale terminals remain. If you find terminals you created that are still open, close them.
+Always descriptive: `worker-tests`, `worker-lint`, `build-server`, `ai-refactor`, `deploy-staging`.
+Never generic: `terminal`, `shell`, `worker-1`.
 
-### Terminal naming
+## Cleanup is non-negotiable
 
-Use descriptive names: `worker-lint`, `worker-test`, `build-server`, `ai-audit-1`. Never use generic names like `terminal` or `shell`.
+Every `claws_create` must have a matching `claws_close`. At the end of any orchestration, run `claws_list` and close anything you own that's still open. Stale terminals are a bug.
+
+## Never headless
+
+When spawning Claude Code in a worker terminal:
+- ALWAYS: `claude --dangerously-skip-permissions` (interactive, visible TUI)
+- NEVER: `claude -p "..."` (headless, invisible)
+
+The user must see every AI worker in their terminal panel.
