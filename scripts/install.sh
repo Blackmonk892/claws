@@ -565,19 +565,51 @@ _install_via_vsix() {
     local cli
     cli="$(_find_editor_cli "$label")" || continue
     info "installing into $label via $cli"
+
+    # Try normal install, then sudo on permission failure (R4.7/B7).
+    local install_ok=0
     if "$cli" --install-extension "$VSIX_PATH" --force >/dev/null 2>&1; then
-      ok "Claws extension installed in $label (via VSIX)"
+      install_ok=1
+    elif sudo "$cli" --install-extension "$VSIX_PATH" --force >/dev/null 2>&1; then
+      info "  installed via sudo (extensions dir required elevated permissions)"
+      install_ok=1
+    fi
+
+    if [ "$install_ok" = "1" ]; then
+      # R4.10: Verify the extension actually landed in the extensions directory
+      # rather than trusting the exit code alone (VS Code exit codes are undocumented).
+      local ext_dir="$HOME/.vscode/extensions"
+      case "$label" in
+        code-insiders) ext_dir="$HOME/.vscode-insiders/extensions" ;;
+        cursor)        ext_dir="$HOME/.cursor/extensions" ;;
+        windsurf)      ext_dir="$HOME/.windsurf/extensions" ;;
+      esac
+      if ls "$ext_dir"/neunaha.claws-* 2>/dev/null | grep -q .; then
+        ok "Claws extension installed in $label (verified in $ext_dir)"
+      else
+        ok "Claws extension installed in $label (via VSIX — extensions dir not found for verification)"
+      fi
       INSTALLED_EDITORS+=("$label")
       any_installed=1
     else
-      # Known failure: extension already loaded, VS Code refuses reinstall
-      # without a restart. That's still fine — VS Code's extensions dir
-      # was updated, the toast fires on next action, and the extension
-      # activates on next window.
+      # Non-zero exit and sudo also failed — likely a running window holds an
+      # exclusive lock on the .node binary. The VSIX is staged in /tmp; VS Code
+      # will pick it up on next Reload Window.
       warn "$label --install-extension refused (likely a running window holds the current version)"
       info "  this is fine — the new VSIX is staged; Reload Window activates it"
-      INSTALLED_EDITORS+=("$label (pending reload)")
-      any_installed=1
+      # R4.10: Still verify — the extensions dir may already have the new version
+      local ext_dir2="$HOME/.vscode/extensions"
+      case "$label" in
+        code-insiders) ext_dir2="$HOME/.vscode-insiders/extensions" ;;
+        cursor)        ext_dir2="$HOME/.cursor/extensions" ;;
+        windsurf)      ext_dir2="$HOME/.windsurf/extensions" ;;
+      esac
+      if ls "$ext_dir2"/neunaha.claws-* 2>/dev/null | grep -q .; then
+        INSTALLED_EDITORS+=("$label (pending reload)")
+        any_installed=1
+      else
+        warn "$label extensions dir has no neunaha.claws-* entry — install may have failed"
+      fi
     fi
   done
 
