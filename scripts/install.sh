@@ -357,11 +357,8 @@ fi
 # reports an older version, we know the working tree is stale — that was
 # the v0.5.1 bug where users saw "v0.4.0 — installed" because their
 # ~/.claws-src/ hadn't caught up with main.
-EXT_VERSION="0.5.6"
-EXPECTED_MIN_VERSION="0.5.6"
-if command -v node &>/dev/null && [ -f "$INSTALL_DIR/extension/package.json" ]; then
-  EXT_VERSION=$(node -e "try{console.log(require('$INSTALL_DIR/extension/package.json').version||'$EXPECTED_MIN_VERSION')}catch(e){console.log('$EXPECTED_MIN_VERSION')}" 2>/dev/null || echo "$EXPECTED_MIN_VERSION")
-fi
+EXPECTED_MIN_VERSION=$(node -e "try{console.log(require('$INSTALL_DIR/extension/package.json').version)}catch(e){console.log('0.5.6')}" 2>/dev/null || echo "0.5.6")
+EXT_VERSION="$EXPECTED_MIN_VERSION"
 
 # Flag stale clones loudly so users don't silently run on an old version.
 if [ "$EXT_VERSION" != "$EXPECTED_MIN_VERSION" ]; then
@@ -443,11 +440,19 @@ _install_via_vsix() {
   local VSIX_PATH="/tmp/claws-$EXT_VERSION.vsix"
   info "packaging VSIX for VS Code install"
 
+  # Sanity-check publisher field — vsce fails silently if it's missing.
+  local pub
+  pub=$(node -e "try{console.log(require('$INSTALL_DIR/extension/package.json').publisher||'')}catch(e){console.log('')}" 2>/dev/null || echo "")
+  if [ -z "$pub" ]; then
+    warn "extension/package.json missing 'publisher' field — vsce will fail"
+    return 1
+  fi
+
   # Package. vsce reads package.json + .vscodeignore to produce the VSIX.
   if ! ( cd "$INSTALL_DIR/extension" \
        && rm -f "$VSIX_PATH" 2>/dev/null \
-       && npx --yes @vscode/vsce package --skip-license --no-git-tag-version --no-update-package-json --out "$VSIX_PATH" ) >/dev/null 2>&1; then
-    warn "vsce package failed — will fall back to symlink install"
+       && npx --yes @vscode/vsce package --skip-license --no-git-tag-version --no-update-package-json --out "$VSIX_PATH" ) >>"$CLAWS_LOG" 2>&1; then
+    warn "vsce package failed — see $CLAWS_LOG for details"
     info "diagnostic: cd $INSTALL_DIR/extension && npx @vscode/vsce package --out $VSIX_PATH"
     return 1
   fi
@@ -458,6 +463,11 @@ _install_via_vsix() {
   fi
 
   local vsix_size; vsix_size=$(wc -c < "$VSIX_PATH" | tr -d ' ')
+  if [ "$vsix_size" -lt 50000 ] 2>/dev/null; then
+    warn "VSIX suspiciously small (${vsix_size} bytes < 50KB) — native binary may be missing from package"
+    warn "Check .vscodeignore includes !native/** and re-run installer"
+    return 1
+  fi
   ok "packaged $VSIX_PATH ($(numfmt --to=iec-i --suffix=B "$vsix_size" 2>/dev/null || echo "${vsix_size} bytes"))"
 
   # Install into every detected editor CLI.
