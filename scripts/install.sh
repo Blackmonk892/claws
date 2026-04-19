@@ -57,6 +57,10 @@ REPO="https://github.com/neunaha/claws.git"
 INSTALL_DIR="${CLAWS_DIR:-$HOME/.claws-src}"
 USER_PWD="$(pwd)"
 PLATFORM="$(uname -s)"
+case "$PLATFORM" in
+  MINGW*|MSYS*|CYGWIN*)
+    die "Windows (Git Bash/MSYS/Cygwin) not supported — use WSL2: https://aka.ms/wslinstall" ;;
+esac
 
 # ─── Banner ─────────────────────────────────────────────────────────────────
 cat <<BANNER
@@ -91,25 +95,6 @@ else
 fi
 echo ""
 
-# ─── Detect editor extensions dir ──────────────────────────────────────────
-detect_ext_dir() {
-  local editor="${CLAWS_EDITOR:-auto}"
-  case "$editor" in
-    cursor)    mkdir -p "$HOME/.cursor/extensions" && echo "$HOME/.cursor/extensions"; return ;;
-    insiders)  mkdir -p "$HOME/.vscode-insiders/extensions" && echo "$HOME/.vscode-insiders/extensions"; return ;;
-    windsurf)  mkdir -p "$HOME/.windsurf/extensions" && echo "$HOME/.windsurf/extensions"; return ;;
-    skip)      echo ""; return ;;
-  esac
-  # auto-detect — first existing dir wins
-  for d in "$HOME/.vscode/extensions" "$HOME/.vscode-insiders/extensions" "$HOME/.cursor/extensions" "$HOME/.windsurf/extensions"; do
-    if [ -d "$d" ]; then echo "$d"; return; fi
-  done
-  # none exist — create VS Code default
-  mkdir -p "$HOME/.vscode/extensions"
-  echo "$HOME/.vscode/extensions"
-}
-EXT_DIR="$(detect_ext_dir)"
-
 # ─── Preflight: dependencies ───────────────────────────────────────────────
 # Every dependency the installer or the extension's build chain touches is
 # checked here with a specific install command for the ones that are missing.
@@ -135,6 +120,8 @@ if ! command -v node &>/dev/null; then
     Linux)  die "node not found — install with: sudo apt install nodejs  (or use nvm: https://github.com/nvm-sh/nvm)" ;;
     *)      die "node not found — install from https://nodejs.org/" ;;
   esac
+  [ -d "$HOME/.nvm" ] && info "nvm detected — run: nvm use --lts  then re-run this installer."
+  [ -d "$HOME/.fnm" ] && info "fnm detected — run: fnm use --lts  then re-run this installer."
 fi
 NODE_MAJOR=$(node -e "console.log(process.versions.node.split('.')[0])" 2>/dev/null || echo "0")
 if [ "$NODE_MAJOR" -lt 18 ] 2>/dev/null; then
@@ -147,6 +134,10 @@ if ! command -v npm &>/dev/null; then
   die "npm not found — should ship with Node. Reinstall Node or install npm separately."
 fi
 ok "npm ($(npm --version))"
+NPM_MAJOR=$(npm --version 2>/dev/null | cut -d. -f1 || echo "0")
+if [ "$NPM_MAJOR" -lt 7 ] 2>/dev/null; then
+  die "npm $(npm --version) too old — requires npm 7+. Upgrade: npm install -g npm"
+fi
 
 # ── Optional but strongly recommended: C++ toolchain for native modules ────
 # node-pty (optional dep) compiles C++ when no prebuilt binary matches the
@@ -218,6 +209,8 @@ else
 fi
 
 info "Platform: $PLATFORM $(uname -r)"
+ARCH="$(uname -m)"
+info "Architecture: $ARCH"
 info "Shell: $SHELL ($BASH_VERSION)"
 info "Install log: $CLAWS_LOG"
 [ "$TOOLCHAIN_OK" = "0" ] && warn "toolchain issues above — install will still run, but node-pty may not compile"
