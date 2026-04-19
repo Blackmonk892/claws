@@ -355,6 +355,10 @@ if command -v npm &>/dev/null && [ -f "$INSTALL_DIR/extension/package.json" ]; t
   NATIVE_PTY_SIZE=$(wc -c < "$NATIVE_PTY_BIN" | tr -d ' ')
   NATIVE_PTY_ELECTRON=$(node -e "try{console.log(require('$INSTALL_DIR/extension/native/.metadata.json').electronVersion||'?')}catch(e){console.log('?')}" 2>/dev/null || echo '?')
   ok "native node-pty ready (${NATIVE_PTY_SIZE} bytes, Electron $NATIVE_PTY_ELECTRON) — VSIX will ship this binary"
+  if command -v file &>/dev/null; then
+    file "$NATIVE_PTY_BIN" 2>/dev/null | grep -qi "$(uname -m)" \
+      || warn "pty.node architecture may not match current machine ($(uname -m)) — check bundle-native.mjs output in $CLAWS_LOG"
+  fi
 else
   bad "npm or extension/package.json missing — cannot build extension."
   bad "Install Node.js 18+ and re-run: bash <(curl -fsSL https://raw.githubusercontent.com/neunaha/claws/main/scripts/install.sh)"
@@ -552,7 +556,18 @@ ok "scripts executable"
 
 # ─── Step 4: Runtime check ─────────────────────────────────────────────────
 step "Runtime check"
-info "No Python required — Node.js only"
+# Verify Node.js is still reachable (a PATH change mid-install would break MCP)
+if command -v node &>/dev/null; then
+  ok "Node.js reachable at $(node -e 'process.stdout.write(process.execPath)' 2>/dev/null) ($(node --version))"
+else
+  bad "node not reachable in current PATH — MCP server and extension build will fail"
+  die "Install Node.js 18+ and re-run: bash <(curl -fsSL https://raw.githubusercontent.com/neunaha/claws/main/scripts/install.sh)"
+fi
+# Verify mcp_server.js is present in the clone before we try to copy it in step 5
+if [ ! -f "$INSTALL_DIR/mcp_server.js" ]; then
+  bad "$INSTALL_DIR/mcp_server.js missing — clone may be incomplete"
+  die "Fix: rm -rf $INSTALL_DIR && re-run this installer"
+fi
 ok "runtime ready"
 
 # ─── Step 5: MCP server (project-local primary, global opt-in) ─────────────
@@ -683,7 +698,8 @@ fs.writeFileSync(p, JSON.stringify(cfg, null, 2) + '\n');
       bad ".mcp.json written to $PROJECT_ROOT but is not valid JSON — MCP server will fail to load"
       bad "Check $CLAWS_LOG for jq/cat errors above"
     fi
-    if [ -f "$PROJECT_ROOT/.gitignore" ] && ! grep -q "^\.claws/" "$PROJECT_ROOT/.gitignore" 2>/dev/null; then
+    touch "$PROJECT_ROOT/.gitignore" 2>/dev/null || true
+    if ! grep -q "^\.claws/" "$PROJECT_ROOT/.gitignore" 2>/dev/null; then
       echo ".claws/" >> "$PROJECT_ROOT/.gitignore"
       ok "added .claws/ to $PROJECT_ROOT/.gitignore"
     fi
@@ -809,7 +825,7 @@ CLAWSCMD
     if [ ! -f "$INSTALL_DIR/scripts/inject-claude-md.js" ] && [ ! -f "$INSTALL_DIR/.claws-bin/inject-claude-md.js" ]; then
       warn "inject-claude-md.js not found — CLAUDE.md injection skipped. Clone may be incomplete."
     else
-      node --no-deprecation "$INSTALL_DIR/scripts/inject-claude-md.js" "$TARGET" 2>&1 | sed 's/^/  /' || warn "CLAUDE.md injector failed"
+      node --no-deprecation "$INSTALL_DIR/scripts/inject-claude-md.js" "$TARGET" 2>&1 | sed 's/^/  /' || warn "CLAUDE.md injector failed — see $CLAWS_LOG for details"
     fi
   fi
 
@@ -855,8 +871,13 @@ inject_hook() {
 [ -f "$INSTALL_DIR/scripts/shell-hook.sh" ] \
   || die "shell-hook.sh missing from $INSTALL_DIR/scripts/ — clone may be incomplete."
 inject_hook "$HOME/.zshrc"
+bash -n "$HOME/.zshrc" 2>/dev/null || warn "~/.zshrc has a syntax error after hook injection — check manually"
 inject_hook "$HOME/.bashrc"
-[ "$PLATFORM" = "Darwin" ] && inject_hook "$HOME/.bash_profile"
+bash -n "$HOME/.bashrc" 2>/dev/null || warn "~/.bashrc has a syntax error after hook injection — check manually"
+if [ "$PLATFORM" = "Darwin" ]; then
+  inject_hook "$HOME/.bash_profile"
+  bash -n "$HOME/.bash_profile" 2>/dev/null || warn "~/.bash_profile has a syntax error after hook injection — check manually"
+fi
 
 if [ -d "$HOME/.config/fish" ]; then
   FISH_CONF="$HOME/.config/fish/conf.d/claws.fish"
@@ -887,10 +908,21 @@ else
 fi
 [ -f "$INSTALL_DIR/extension/dist/extension.js" ] && _ok "Extension bundle built" || warn "Extension bundle missing — fallback to legacy JS active"
 [ -f "$MCP_PATH" ] && _ok "MCP server exists at $MCP_PATH" || _miss "$MCP_PATH missing"
-command -v node &>/dev/null && _ok "Node.js available ($(node --version))" || _miss "node not found"
+if command -v node &>/dev/null; then
+  _ok "Node.js available ($(node --version)) — $(node -e 'process.stdout.write(process.execPath)' 2>/dev/null)"
+  info "Note: GUI-launched VS Code may resolve a different Node.js PATH than this shell"
+else
+  _miss "node not found"
+fi
 
 if [ "$PROJECT_INSTALL" = "1" ]; then
-  [ -f "$PROJECT_ROOT/.mcp.json" ] && _ok "Project .mcp.json" || _miss "project .mcp.json missing"
+  if [ -f "$PROJECT_ROOT/.mcp.json" ] && node -e "JSON.parse(require('fs').readFileSync('$PROJECT_ROOT/.mcp.json','utf8'))" 2>/dev/null; then
+    _ok "Project .mcp.json (present and valid JSON)"
+  elif [ -f "$PROJECT_ROOT/.mcp.json" ]; then
+    _miss "Project .mcp.json exists but is invalid JSON — MCP server will fail to load"
+  else
+    _miss "project .mcp.json missing"
+  fi
   [ -f "$PROJECT_ROOT/.claws-bin/mcp_server.js" ] && _ok "Project .claws-bin/mcp_server.js" || _miss "project mcp_server.js copy missing"
   if [ "${CLAWS_SKIP_EXTENSION_COPY:-0}" != "1" ]; then
     [ -f "$PROJECT_ROOT/.claws-bin/extension/dist/extension.js" ] \
