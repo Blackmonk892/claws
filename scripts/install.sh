@@ -828,6 +828,8 @@ inject_hook() {
   fi
 }
 
+[ -f "$INSTALL_DIR/scripts/shell-hook.sh" ] \
+  || die "shell-hook.sh missing from $INSTALL_DIR/scripts/ — clone may be incomplete."
 inject_hook "$HOME/.zshrc"
 inject_hook "$HOME/.bashrc"
 [ "$PLATFORM" = "Darwin" ] && inject_hook "$HOME/.bash_profile"
@@ -836,11 +838,14 @@ if [ -d "$HOME/.config/fish" ]; then
   FISH_CONF="$HOME/.config/fish/conf.d/claws.fish"
   mkdir -p "$HOME/.config/fish/conf.d" 2>/dev/null
   {
-    echo "# CLAWS terminal hook"
+    echo "# CLAWS terminal hook (auto-generated)"
     echo "if status is-interactive"
-    echo "  source $INSTALL_DIR/scripts/shell-hook.sh"
+    echo "    set -gx CLAWS_DIR '$INSTALL_DIR'"
+    echo "    if command -v bass >/dev/null 2>&1"
+    echo "        bass source '$INSTALL_DIR/scripts/shell-hook.sh' 2>/dev/null"
+    echo "    end"
     echo "end"
-  } > "$FISH_CONF" && ok "wrote fish conf" || warn "could not write fish config"
+  } > "$FISH_CONF" && ok "wrote fish conf (native syntax)" || warn "could not write fish config"
 fi
 
 # ─── Step 8: Verify ────────────────────────────────────────────────────────
@@ -960,4 +965,4 @@ NEXT
 
 # Source shell hook last so its output doesn't push the banner off-screen.
 # shellcheck disable=SC1090
-source "$INSTALL_DIR/scripts/shell-hook.sh" 2>/dev/null || true
+info "Open a new terminal to activate the shell hook."
