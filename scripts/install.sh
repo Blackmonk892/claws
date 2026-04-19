@@ -951,15 +951,16 @@ fi
 if [ -d "$HOME/.config/fish" ]; then
   FISH_CONF="$HOME/.config/fish/conf.d/claws.fish"
   mkdir -p "$HOME/.config/fish/conf.d" 2>/dev/null
+  # Write a minimal conf.d loader that sets CLAWS_DIR and sources the
+  # standalone shell-hook.fish (no bass dependency required).
   {
-    echo "# CLAWS terminal hook (auto-generated)"
-    echo "if status is-interactive"
-    echo "    set -gx CLAWS_DIR '$INSTALL_DIR'"
-    echo "    if command -v bass >/dev/null 2>&1"
-    echo "        bass source '$INSTALL_DIR/scripts/shell-hook.sh' 2>/dev/null"
-    echo "    end"
+    echo "# CLAWS terminal hook (auto-generated — do not edit)"
+    echo "set -gx CLAWS_DIR '$INSTALL_DIR'"
+    echo "set -gx CLAWS_SOCKET '.claws/claws.sock'"
+    echo "if test -f '$INSTALL_DIR/scripts/shell-hook.fish'"
+    echo "    source '$INSTALL_DIR/scripts/shell-hook.fish'"
     echo "end"
-  } > "$FISH_CONF" && ok "wrote fish conf (native syntax)" || warn "could not write fish config"
+  } > "$FISH_CONF" && ok "wrote fish conf (native fish, no bass required)" || warn "could not write fish config"
 fi
 
 # ─── Step 8: Verify ────────────────────────────────────────────────────────
